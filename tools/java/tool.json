@@ -1,0 +1,27 @@
+{
+  "source": {
+    "datasource": "java-version",
+    "packageName": "java-jdk?os=linux&architecture={arch}"
+  },
+  "publish": {
+    "lines": {
+      "21": {
+        "from": "21.0.12",
+        "reason": "camunda/camunda ci.yml: setup-build java-version 21",
+        "ignoredVersions": [
+          "21.0.12+8.0.LTS"
+        ]
+      },
+      "*": {
+        "from": "27.0.0"
+      }
+    }
+  },
+  "install": {
+    "cacheFolder": "Java_Temurin-Hotspot_jdk",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "aarch64"
+    }
+  }
+}

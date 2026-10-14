@@ -1,0 +1,24 @@
+# See https://pre-commit.com for more information
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: check-added-large-files
+  - id: check-json
+  - id: check-yaml
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+- repo: https://github.com/shellcheck-py/shellcheck-py
+  rev: v0.11.0.1
+  hooks:
+  - id: shellcheck
+- repo: https://github.com/hadolint/hadolint
+  rev: v2.15.1
+  hooks:
+  - id: hadolint-docker
+    files: (^|/)(Dockerfile|[\w.-]+\.Dockerfile)$
+- repo: https://github.com/compilerla/conventional-pre-commit
+  rev: v4.4.0
+  hooks:
+  - id: conventional-pre-commit
+    stages: [commit-msg]

@@ -1,0 +1,17 @@
+{
+  "source": {
+    "datasource": "github-releases",
+    "packageName": "rhysd/actionlint",
+    "extractVersion": "^v(?<version>.+)$"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "1.7.12"
+      }
+    }
+  },
+  "install": {
+    "addToPath": "bin"
+  }
+}

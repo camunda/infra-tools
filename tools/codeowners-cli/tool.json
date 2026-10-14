@@ -1,0 +1,17 @@
+{
+  "source": {
+    "datasource": "github-releases",
+    "packageName": "multimediallc/codeowners-plus",
+    "extractVersion": "^v(?<version>.+)$"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "1.12.0"
+      }
+    }
+  },
+  "install": {
+    "addToPath": "bin"
+  }
+}

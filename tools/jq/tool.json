@@ -1,0 +1,17 @@
+{
+  "source": {
+    "datasource": "github-releases",
+    "packageName": "jqlang/jq",
+    "extractVersion": "^jq-(?<version>.+)$"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "1.8.2"
+      }
+    }
+  },
+  "install": {
+    "addToPath": "bin"
+  }
+}

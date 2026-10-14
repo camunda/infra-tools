@@ -1,0 +1,5 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // Tool versions (tools/*/tool.json) are published by the reconciler, not by Renovate.
+  extends: ["github>camunda/infra-renovate-config:default.json5"],
+}

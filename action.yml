@@ -1,0 +1,37 @@
+---
+name: infra-tools setup
+description: Installs the selected tools into the runner tool cache and adds them to PATH, ready to use.
+
+inputs:
+  tools:
+    description: >-
+      One selector per line, `<tool>[@<version prefix>]`, e.g. `jq@1`, `kubectl@1.35`. Tools: actionlint, codeowners-cli, conftest, docker-compose, helm, jq, kubectl, maven, yq.
+    default: ''
+  mode:
+    description: '`extract` installs the tools; `validate` checks the selectors of every workflow in the repository against this release.'
+    default: extract
+  token:
+    description: Token allowed to pull the infra-tools package.
+    default: ${{ github.token }}
+  index:
+    description: Index to read instead of this release's (`<registry>/<repository>:<tag>`), for tests and mirrors.
+    default: ''
+
+outputs:
+  versions:
+    description: >-
+      Resolved version per selected tool, as JSON: `{"jq":"1.8.2","maven":"3.9.16"}`; plain tools are on PATH, so it is informational.
+    value: ${{ steps.run.outputs.versions }}
+
+runs:
+  using: composite
+  steps:
+  - id: run
+    shell: bash
+    env:
+      KIND: setup
+      TOOLS: ${{ inputs.tools }}
+      MODE: ${{ inputs.mode }}
+      TOKEN: ${{ inputs.token }}
+      INDEX: ${{ inputs.index }}
+    run: '"${GITHUB_ACTION_PATH}/scripts/action/setup.sh"'

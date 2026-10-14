@@ -1,0 +1,21 @@
+{
+  "source": {
+    "datasource": "maven",
+    "packageName": "org.apache.maven:apache-maven",
+    "versioning": "semver"
+  },
+  "publish": {
+    "lines": {
+      "3.9": {
+        "from": "3.9.16",
+        "reason": "camunda/camunda ./mvnw (maven-wrapper.properties)"
+      },
+      "*": {
+        "from": "3.10.0"
+      }
+    }
+  },
+  "install": {
+    "addToPath": "bin"
+  }
+}

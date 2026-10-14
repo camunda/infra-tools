@@ -1,0 +1,19 @@
+{
+  "source": {
+    "datasource": "github-releases",
+    "packageName": "astral-sh/uv"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "0.13.1"
+      }
+    }
+  },
+  "install": {
+    "archFolders": {
+      "amd64": "x86_64",
+      "arm64": "aarch64"
+    }
+  }
+}
