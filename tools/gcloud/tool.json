@@ -1,0 +1,16 @@
+{
+  "source": {
+    "datasource": "docker",
+    "packageName": "google/cloud-sdk",
+    "versioning": "semver",
+    "extractVersion": "^(?<version>\\d+\\.\\d+\\.\\d+)$"
+  },
+  "publish": {
+    "minAge": "3 days",
+    "lines": {
+      "*": {
+        "from": "589.0.0"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "source": {
+    "datasource": "github-releases",
+    "packageName": "open-policy-agent/conftest",
+    "extractVersion": "^v(?<version>.+)$"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "0.71.1"
+      }
+    }
+  },
+  "install": {
+    "addToPath": "bin"
+  }
+}

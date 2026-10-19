@@ -1,0 +1,37 @@
+---
+name: infra-tools cache
+description: Pre-fills the runner tool cache with the selected tools, so their setup-* actions find them without downloading.
+
+inputs:
+  tools:
+    description: >-
+      One selector per line, `<tool>[@<version prefix>]`, e.g. `java@21`, `node@26`; `java@21.0.12+8` pins an exact build. Tools: gcloud, go, java, node, python, uv.
+    default: ''
+  mode:
+    description: '`extract` installs the tools; `validate` checks the selectors of every workflow in the repository against this release.'
+    default: extract
+  token:
+    description: Token allowed to pull the infra-tools package.
+    default: ${{ github.token }}
+  index:
+    description: Index to read instead of this release's (`<registry>/<repository>:<tag>`), for tests and mirrors.
+    default: ''
+
+outputs:
+  versions:
+    description: >-
+      Resolved version per selected tool, as JSON: `{"java":"21.0.12+101.0.LTS","node":"24.21.0"}`, in the form setup-* actions expect: `fromJSON(steps.<id>.outputs.versions).java`.
+    value: ${{ steps.run.outputs.versions }}
+
+runs:
+  using: composite
+  steps:
+  - id: run
+    shell: bash
+    env:
+      KIND: cache
+      TOOLS: ${{ inputs.tools }}
+      MODE: ${{ inputs.mode }}
+      TOKEN: ${{ inputs.token }}
+      INDEX: ${{ inputs.index }}
+    run: '"${GITHUB_ACTION_PATH}/../scripts/action/setup.sh"'

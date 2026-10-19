@@ -1,0 +1,17 @@
+{
+  "source": {
+    "datasource": "github-releases",
+    "packageName": "helm/helm",
+    "extractVersion": "^v(?<version>.+)$"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "4.3.1"
+      }
+    }
+  },
+  "install": {
+    "addToPath": "bin"
+  }
+}

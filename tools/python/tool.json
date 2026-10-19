@@ -1,0 +1,18 @@
+{
+  "source": {
+    "datasource": "github-releases",
+    "packageName": "actions/python-versions",
+    "versioning": "semver",
+    "extractVersion": "^(?<version>\\d+\\.\\d+\\.\\d+)-\\d+$"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "3.15.0"
+      }
+    }
+  },
+  "install": {
+    "cacheFolder": "Python"
+  }
+}

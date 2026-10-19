@@ -1,0 +1,16 @@
+{
+  "source": {
+    "datasource": "golang-version"
+  },
+  "publish": {
+    "lines": {
+      "1.25": {
+        "from": "1.25.14",
+        "reason": "camunda/camunda ci.yml: load-tests go.mod"
+      },
+      "*": {
+        "from": "1.27.2"
+      }
+    }
+  }
+}

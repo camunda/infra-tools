@@ -1,0 +1,25 @@
+{
+  "source": {
+    "datasource": "node-version",
+    "versioning": "semver",
+    "extractVersion": "^v(?<version>.+)$"
+  },
+  "publish": {
+    "lines": {
+      "24": {
+        "from": "24.22.0",
+        "reason": "camunda/camunda ci.yml: release-notes-action-ci node-version 24"
+      },
+      "26": {
+        "from": "26.12.0",
+        "versions": [
+          "26.10.0"
+        ],
+        "reason": "camunda/camunda ci.yml: node-version 26; parent/pom.xml pins 26.10.0 (Optimize)"
+      },
+      "*": {
+        "from": "27.0.0"
+      }
+    }
+  }
+}

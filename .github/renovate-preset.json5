@@ -1,0 +1,40 @@
+// Renovate preset for repositories using camunda/infra-tools:
+//   extends: ["github>camunda/infra-tools//.github/renovate-preset.json5"]
+// The action pins (`uses: camunda/infra-tools[/cache]@<sha> # X.Y.Z`) are tracked by Renovate's github-actions manager.
+// This preset updates the `tools: |` selectors against the tool versions of the pinned release (published/ at its tag),
+// keeping each selector's precision (node@26, kubectl@1.35, java@21.0.12). Exact build pins (java@21.0.12+8) are left alone.
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  customManagers: [
+    {
+      customType: "regex",
+      managerFilePatterns: ["/(^|/)\\.github/(workflows|actions)/.+\\.ya?ml$/", "/(^|/)action\\.ya?ml$/"],
+      matchStringsStrategy: "recursive",
+      matchStrings: [
+        "camunda/infra-tools(?:/cache)?@[a-f0-9]{40}\\s+#\\s*v?(?<releaseVersion>\\d+\\.\\d+\\.\\d+)\\b.*\\n(?:[ \\t]+[\\w-]+:.*\\n)*?[ \\t]+tools:\\s*\\|\\n(?:[ \\t]+[a-z][a-z0-9-]*(?:@\\S+)?[ \\t]*\\n)+",
+        "tools:\\s*\\|\\n(?:[ \\t]+[a-z][a-z0-9-]*(?:@\\S+)?[ \\t]*\\n)+",
+        "(?<tool>[a-z][a-z0-9-]*)@(?<currentValue>\\d+(?:\\.\\d+){0,2})[ \\t]*\\n",
+      ],
+      depNameTemplate: "infra-tools/{{{tool}}}",
+      packageNameTemplate: "{{{tool}}}.json?ref={{{releaseVersion}}}",
+      datasourceTemplate: "custom.infra-tools",
+      versioningTemplate: "npm",
+    },
+  ],
+  customDatasources: {
+    "infra-tools": {
+      defaultRegistryUrlTemplate: "https://api.github.com/repos/camunda/infra-tools/contents/published/{{{packageName}}}",
+      format: "json",
+      transformTemplates: [
+        '{"releases": [$distinct($map($filter($eval($base64decode(content)), function($e) { $not($e.retired = true) }), function($e) { $match($e.version, /^[0-9]+(\\.[0-9]+){0,2}/).match })).{"version": $}]}',
+      ],
+    },
+  },
+  packageRules: [
+    {
+      matchDepNames: ["/^infra-tools\\//"],
+      groupName: "infra-tools selectors",
+      rangeStrategy: "replace",
+    },
+  ],
+}

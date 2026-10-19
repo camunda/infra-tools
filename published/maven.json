@@ -1,0 +1,16 @@
+[
+  {
+    "version": "3.9.16",
+    "line": "3.9",
+    "folderVersion": "3.9.16",
+    "revision": 1,
+    "tag": "maven-3.9.16-r1",
+    "cacheFolder": "maven",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": "bin",
+    "publishedAt": "2026-10-19T15:11:11.952Z"
+  }
+]
