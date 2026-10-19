@@ -1,0 +1,15 @@
+[
+  {
+    "version": "1.7.12",
+    "folderVersion": "1.7.12",
+    "revision": 1,
+    "tag": "actionlint-1.7.12-r1",
+    "cacheFolder": "actionlint",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": "bin",
+    "publishedAt": "2026-10-19T16:37:17.540Z"
+  }
+]

@@ -1,0 +1,15 @@
+[
+  {
+    "version": "0.13.1",
+    "folderVersion": "0.13.1",
+    "revision": 1,
+    "tag": "uv-0.13.1-r1",
+    "cacheFolder": "uv",
+    "archFolders": {
+      "amd64": "x86_64",
+      "arm64": "aarch64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-10-19T16:37:17.547Z"
+  }
+]

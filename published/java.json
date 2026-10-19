@@ -12,5 +12,18 @@
     },
     "addToPath": null,
     "publishedAt": "2026-10-19T14:27:21.153Z"
+  },
+  {
+    "version": "27.0.0+35",
+    "folderVersion": "27.0.0-35",
+    "revision": 1,
+    "tag": "java-27.0.0-35-r1",
+    "cacheFolder": "Java_Temurin-Hotspot_jdk",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "aarch64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-10-19T16:37:17.543Z"
   }
 ]

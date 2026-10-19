@@ -1,0 +1,15 @@
+[
+  {
+    "version": "5.6.0",
+    "folderVersion": "5.6.0",
+    "revision": 1,
+    "tag": "docker-compose-5.6.0-r1",
+    "cacheFolder": "docker-compose",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": "bin",
+    "publishedAt": "2026-10-19T16:37:17.542Z"
+  }
+]

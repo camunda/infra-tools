@@ -1,0 +1,15 @@
+[
+  {
+    "version": "0.71.1",
+    "folderVersion": "0.71.1",
+    "revision": 1,
+    "tag": "conftest-0.71.1-r1",
+    "cacheFolder": "conftest",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": "bin",
+    "publishedAt": "2026-10-19T16:37:17.542Z"
+  }
+]

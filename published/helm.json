@@ -1,0 +1,15 @@
+[
+  {
+    "version": "4.3.1",
+    "folderVersion": "4.3.1",
+    "revision": 1,
+    "tag": "helm-4.3.1-r1",
+    "cacheFolder": "helm",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": "bin",
+    "publishedAt": "2026-10-19T16:37:17.543Z"
+  }
+]

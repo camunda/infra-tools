@@ -1,0 +1,15 @@
+[
+  {
+    "version": "4.54.1",
+    "folderVersion": "4.54.1",
+    "revision": 1,
+    "tag": "yq-4.54.1-r1",
+    "cacheFolder": "yq",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": "bin",
+    "publishedAt": "2026-10-19T16:37:17.547Z"
+  }
+]

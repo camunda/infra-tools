@@ -1,0 +1,29 @@
+[
+  {
+    "version": "1.25.14",
+    "line": "1.25",
+    "folderVersion": "1.25.14",
+    "revision": 1,
+    "tag": "go-1.25.14-r1",
+    "cacheFolder": "go",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-10-19T16:37:17.542Z"
+  },
+  {
+    "version": "1.27.2",
+    "folderVersion": "1.27.2",
+    "revision": 1,
+    "tag": "go-1.27.2-r1",
+    "cacheFolder": "go",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-10-19T16:37:17.542Z"
+  }
+]
