@@ -250,8 +250,8 @@ Releases (release-please, D25):
 - Selectors: `java@21` and `java@21.0.12` resolve to the highest build; an exact build can be pinned (`java@21.0.12+8`, `-` accepted).
 - Non-Linux runners: no-op. `mode: validate` checks a repository's selectors against the pinned index.
 - Mirror (D44): with `INFRA_TOOLS_MIRROR` set, the action reads `<mirror>/infra-tools:<tag>` instead of
-  `ghcr.io/camunda/infra-tools:<tag>`; on `*.pkg.dev` it authenticates with the GKE metadata server token (Workload Identity),
-  elsewhere with `token`; it falls back to ghcr.io with a warning when the mirror fails.
+  `ghcr.io/camunda/infra-tools:<tag>`; on `*.pkg.dev` it sends the GKE metadata server token (Workload Identity) as bearer token
+  directly, skipping the registry token endpoint (occasionally ~5 s on Artifact Registry), elsewhere it exchanges `token`; it falls back to ghcr.io with a warning when the mirror fails.
 
 ### 5.7 Renovate
 

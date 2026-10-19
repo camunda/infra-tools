@@ -70,26 +70,20 @@ use_index() {
   auth=()
 }
 
-# Artifact Registry: the runner pod's Workload Identity token from the GKE metadata server; other registries: TOKEN.
-credentials() {
-  local token
-  if [[ "${registry}" == *.pkg.dev ]]; then
-    token="$(curl -fsS -m 5 -H "Metadata-Flavor: Google" \
-      http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -r .access_token)" || return 1
-    echo "oauth2accesstoken:${token}"
-  elif [[ -n "${TOKEN:-}" ]]; then
-    echo "token:${TOKEN}"
-  fi
-}
-
+# Artifact Registry takes the runner pod's Workload Identity access token (GKE metadata server) as a bearer token directly,
+# which skips its challenge and token endpoints (occasionally ~5 s each); other registries: token exchange with TOKEN.
 login() {
-  local challenge realm service user bearer
-  challenge="$(curl -sS -m 10 -o /dev/null -D - -H "Accept: ${accept_index}" "${api}/manifests/${tag}" | tr -d '\r' | awk 'tolower($1) == "www-authenticate:" { $1 = ""; print }')" || return 1
-  [[ "${challenge}" == *Bearer* ]] || return 0
-  realm="$(sed -nE 's/.*realm="([^"]+)".*/\1/p' <<<"${challenge}")"
-  service="$(sed -nE 's/.*service="([^"]+)".*/\1/p' <<<"${challenge}")"
-  user="$(credentials)" || return 1
-  bearer="$(curl -fsSL --retry 3 ${user:+-u "${user}"} "${realm}?service=${service}&scope=repository:${name}:pull" | jq -r '.token // .access_token')" || return 1
+  local challenge realm service bearer
+  if [[ "${registry}" == *.pkg.dev ]]; then
+    bearer="$(curl -fsS -m 5 -H "Metadata-Flavor: Google" \
+      http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -r .access_token)" || return 1
+  else
+    challenge="$(curl -sS -m 10 -o /dev/null -D - -H "Accept: ${accept_index}" "${api}/manifests/${tag}" | tr -d '\r' | awk 'tolower($1) == "www-authenticate:" { $1 = ""; print }')" || return 1
+    [[ "${challenge}" == *Bearer* ]] || return 0
+    realm="$(sed -nE 's/.*realm="([^"]+)".*/\1/p' <<<"${challenge}")"
+    service="$(sed -nE 's/.*service="([^"]+)".*/\1/p' <<<"${challenge}")"
+    bearer="$(curl -fsSL --retry 3 ${TOKEN:+-u "token:${TOKEN}"} "${realm}?service=${service}&scope=repository:${name}:pull" | jq -r '.token // .access_token')" || return 1
+  fi
   [[ -n "${bearer}" && "${bearer}" != null ]] || return 1
   auth=(-H "Authorization: Bearer ${bearer}")
 }
