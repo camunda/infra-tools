@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { isRetired, ROOT } from './config.mjs';
-import { compareVersions, folderVersion, trimVersion } from './versions.mjs';
+import { compareVersions, folderVersion } from './versions.mjs';
 
 const CATALOG = join(ROOT, 'published');
 export const ANNOTATION = 'io.camunda.infra-tools';
@@ -106,11 +106,6 @@ export function diffIndex(previous, next) {
   }
   for (const [key, item] of before) if (!after.has(key)) changes.retired.push(item);
   return changes;
-}
-
-export function renovateReleases(entries, tool) {
-  const versions = [...new Set(entries.filter((e) => e.tool === tool).map((e) => trimVersion(e.version)))];
-  return { releases: versions.sort(compareVersions).map((version) => ({ version })) };
 }
 
 export function changesMarkdown({ version, previous, repository, changes }) {

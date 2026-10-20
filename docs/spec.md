@@ -225,8 +225,7 @@ Releases (release-please, D25):
   1. Index = previous index + `published/` entries − retired versions; fail if a declared entry has no tag.
   2. Push the per-platform artifact manifests and the `X.Y.Z-tools` index; no layer is uploaded twice.
   3. Compare with the previous index; append the Added / Replaced / Retired tables (with tool release links) to the notes.
-  4. Attach `tools.json`, one `<tool>.json` per tool (Renovate custom datasource format, versions trimmed to `X.Y.Z`),
-     `changes.md`, `changes.json`.
+  4. Attach `tools.json` (every tool version per platform with its tag, layer digest and size); the tables go in the notes.
 
 ### 5.6 Actions (root, `cache`)
 
@@ -305,7 +304,7 @@ Releases (release-please, D25):
 | D17 | No dev runners for `camunda/camunda`. | Dev runner group with the toolset image | The action must work on today's runners. | decided |
 | D18 | Manual releases for the PoC; automatic releases with a derived semver later. | Automatic from the start | Not needed to prove the gain. | superseded by D25 |
 | D19 | Line images are pushed on merge; a release only assembles the index from existing tags. | Push line images during the release | Fast releases with no build. | superseded by D21 |
-| D20 | Release notes include the Added / Replaced / Retired tables from comparing the new index with the previous one, also as `changes.json`, and as a dry-run comment on PRs. | Hand-written notes; git log only | Lists exactly what consumers gain or lose; reviewers see the next release before merging. | decided |
+| D20 | Release notes include the Added / Replaced / Retired tables from comparing the new index with the previous one, and as a dry-run comment on PRs. | Hand-written notes; git log only | Lists exactly what consumers gain or lose; reviewers see the next release before merging. | decided |
 | D21 | A scheduled reconciler publishes every upstream version in range (Renovate datasources) and opens fix PRs for failures, grouped per tool and major when the error matches. | Renovate PR per version line; reconciler without PRs ([containerbase](https://github.com/containerbase/node-prebuild)); moving lines (docker-library) | No gaps (R15), bursts handled; review where it matters; same model as [actions/node-versions](https://github.com/actions/node-versions). | decided |
 | D22 | Version differences with `if version ≥ X` in the default `install.sh` and `test.sh`; per-range override folders only if needed later. | Per-line folders from the start | Most tools are download-and-unpack; same approach as GitHub's builders. | decided |
 | D23 | Version identity is the exact string; ordering includes build metadata; `startVersion` inclusive; ranges resolve to the highest build; exact builds can be pinned. | One build per `X.Y.Z` (newest replaces older) | Keeps every build (R16); semver equality would drop builds. | decided |
@@ -314,7 +313,7 @@ Releases (release-please, D25):
 | D26 | Dedicated public repository `camunda/infra-toolset`; `tools/` and docs prominent, build tooling (`.build/`), catalog (`.catalog/`) and action implementation (`.action/`) hidden. | Subfolder of `infra-actions-runner` | Own release flow and tags; public package and assets for public consumers. | superseded by D37, layout by D42 |
 | D27 | The action lives at the root of `camunda/infra-toolset`, with one version line for the action and the toolset; no `version` input. | Action in `infra-global-github-actions` with a `version` input | One pin gives a consistent action and index; simpler Renovate. | superseded by D37 (one version line kept) |
 | D28 | Publish a version only when available for every platform; open a fix PR after N days otherwise. | Publish per platform as available | An index entry must exist for every platform. | decided |
-| D29 | Renovate selector data read from `published/<tool>.json` at the release tag through the GitHub contents API; release assets kept for people and scripts. | Release assets (D4) | Works while the repository is internal (Renovate sends its token to `api.github.com`), no extra file. | decided |
+| D29 | Renovate selector data read from `published/<tool>.json` at the release tag through the GitHub contents API; the release only attaches `tools.json`, for people and scripts. | Release assets (D4) | Works while the repository is internal (Renovate sends its token to `api.github.com`), no extra file. | decided |
 | D30 | Release tags `X.Y.Z` (infra convention, release-please config in `.github/config/`); the action pin is tracked by Renovate's github-actions manager. | `toolset-X.Y.Z` with a custom manager | Tool release tags (`node-26.11.2-r1`) are not versions, so no prefix is needed. | decided |
 | D31 | One generic `build/tool.Dockerfile`; a tool adds its own `Dockerfile` only when needed (python). | A Dockerfile per tool | 14 of 15 tools build the same way. | decided |
 | D32 | The action links the tool cache Maven into `~/.m2/wrapper/dists/<name>/<hash>` when the wrapper asks for the same version. | Only `mvn` on `PATH`; drop Maven | `./mvnw` uses it without downloading (same hash as `mvnw`). | decided |

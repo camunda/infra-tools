@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  compareVersions, folderVersion, highestMatching, lineOf, matchesSelector, parseDuration, sortVersions, tagFor, trimVersion, versionFromFolder,
+  compareVersions, folderVersion, highestMatching, lineOf, matchesSelector, parseDuration, sortVersions, tagFor, versionFromFolder,
 } from '../lib/versions.mjs';
 
 test('builds of the same X.Y.Z are distinct and ordered by build', () => {
@@ -46,9 +46,7 @@ test('folder and tag names', () => {
   assert.throws(() => tagFor('node', '26 .1', 1));
 });
 
-test('trim and durations', () => {
-  assert.equal(trimVersion('21.0.12+101.0.LTS'), '21.0.12');
-  assert.equal(trimVersion('589.0.0'), '589.0.0');
+test('durations', () => {
   assert.equal(parseDuration('3 days'), 3 * 86400e3);
   assert.equal(parseDuration('1 day'), 86400e3);
   assert.throws(() => parseDuration('soon'));
