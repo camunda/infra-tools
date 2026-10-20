@@ -235,7 +235,11 @@ Releases (release-please, D25):
   finds them. Each rejects the other kind with a message naming the right action (D42).
 - One implementation (`scripts/action/setup.sh`, bash, curl, jq; `KIND` (`setup`, `cache`) selects the action); both actions share the release version,
   read from the release-please manifest at the pinned commit; there is no `version` input.
-- Inputs: `tools` (selectors, one per line), `token`, `mode` (`extract`, `validate`), `index` (override, for tests and mirrors).
+- Inputs: `tools` (selectors, one per line), `token`, `mode` (`extract`, `validate`), `index` (override, for tests and mirrors),
+  `summary` (`true`: table of the selected tools in the job summary).
+- Log: the release and platform, one line per tool (selector, resolved version, `installed` with size, duration, speed and
+  registry, or `cached`, and the tool cache path) and a total; login and index timings in a collapsed group; layer digests as
+  debug messages.
   Output: `versions`, JSON of the resolved version per selected tool in the form `setup-*` actions expect
   (`{"java":"21.0.12+101.0.LTS"}`, read with `fromJSON(steps.<id>.outputs.versions).java`); `{}` when nothing is installed (D43).
 - Tool layouts (cache folder, arch folders, `addToPath`) come from `tools/*/tool.json` at the pinned commit, so present tools

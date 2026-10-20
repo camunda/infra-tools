@@ -44,6 +44,8 @@ A few details:
 - Some tools get an extra link where their users look for them (for example the Docker CLI plugin folder, or the `./mvnw`
   distribution folder).
 - `mode: validate` checks every selector in your repository's workflows against the pinned release, without installing anything.
+- The log shows one line per tool (resolved version; installed with size, time, speed and registry, or cached; tool cache path).
+  `summary: true` adds the same as a table to the job summary.
 - Runners can pull from a mirror of the registry: set `INFRA_TOOLS_MIRROR` (for example
   `europe-west1-docker.pkg.dev/<project>/<repository>`) in the runner environment. On Artifact Registry the action uses the runner
   pod's Workload Identity; if the mirror fails, it falls back to ghcr.io.

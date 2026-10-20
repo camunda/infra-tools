@@ -16,6 +16,9 @@ inputs:
   index:
     description: Index to read instead of this release's (`<registry>/<repository>:<tag>`), for tests and mirrors.
     default: ''
+  summary:
+    description: '`true` adds a table of the selected tools (version, result, tool cache path) to the job summary.'
+    default: 'false'
 
 outputs:
   versions:
@@ -34,4 +37,5 @@ runs:
       MODE: ${{ inputs.mode }}
       TOKEN: ${{ inputs.token }}
       INDEX: ${{ inputs.index }}
+      SUMMARY: ${{ inputs.summary }}
     run: '"${GITHUB_ACTION_PATH}/../scripts/action/setup.sh"'

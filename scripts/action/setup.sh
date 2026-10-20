@@ -17,6 +17,8 @@ prefix="infra-tools"
 [[ "${kind}" == cache ]] && prefix="infra-tools/cache"
 tmp="${RUNNER_TEMP:-/tmp}"
 auth=()
+now_ms() { echo $(($(date +%s%N) / 1000000)); }
+started="$(now_ms)"
 
 if [[ "${RUNNER_OS:-Linux}" != Linux ]]; then
   echo "::notice::${prefix}: ${RUNNER_OS} runners are not supported, nothing installed"
@@ -90,17 +92,27 @@ login() {
 
 # Logs in and reads the platform's index manifest, from the mirror when set, else (or when it fails) from the origin.
 connect() {
+  local t0
+  echo "::group::${prefix}: index"
   if [[ -n "${mirror_index}" ]]; then
     use_index "${mirror_index}"
-    if login && platform_layers="$(layers "$1")" && [[ -n "${platform_layers}" ]]; then
-      echo "${prefix}: using mirror ${mirror_index}"
+    t0="$(now_ms)"
+    if login && echo "login ${registry}: $(($(now_ms) - t0)) ms" && t0="$(now_ms)" \
+      && platform_layers="$(layers "$1")" && [[ -n "${platform_layers}" ]]; then
+      echo "index ${index}: $(($(now_ms) - t0)) ms (mirror)"
+      echo "::endgroup::"
       return 0
     fi
     echo "::warning::${prefix}: mirror ${mirror_index} unavailable, using ${origin_index}"
   fi
   use_index "${origin_index}"
+  t0="$(now_ms)"
   login
+  echo "login ${registry}: $(($(now_ms) - t0)) ms"
+  t0="$(now_ms)"
   platform_layers="$(layers "$1")"
+  echo "index ${index}: $(($(now_ms) - t0)) ms"
+  echo "::endgroup::"
 }
 
 get() { curl -fsSL --retry 3 --retry-all-errors ${auth[@]+"${auth[@]}"} "$@"; }
@@ -177,7 +189,9 @@ link_mvnw() {
 }
 
 install_layer() {
-  local tool="$1" ver="$2" digest="$3" target="$4" sum="${tmp}/infra-tools-$1.sha256" attempt sum_pid
+  local tool="$1" ver="$2" digest="$3" target="$4" sum="${tmp}/infra-tools-$1.sha256" attempt sum_pid t0
+  t0="$(now_ms)"
+  echo "::debug::${prefix}: ${tool} ${ver} layer ${digest} from ${registry}"
   for attempt in 1 2 3; do
     rm -rf "${target}" "${sum}.fifo"
     mkfifo "${sum}.fifo"
@@ -196,13 +210,16 @@ install_layer() {
   done
   rm -f "${sum}" "${sum}.fifo"
   touch "${target}.complete"
-  echo "installed ${tool} ${ver}"
+  echo "$(($(now_ms) - t0))" >"${tmp}/infra-tools-$1.ms"
 }
 
-declare -A folder arch_folder add_path resolved
+declare -A folder arch_folder add_path resolved selected state size
+order=()
 missing=()
 for selector in ${TOOLS:-}; do
   tool="${selector%%@*}" want=""
+  selected[${tool}]="${selector}"
+  order+=("${tool}")
   [[ "${selector}" == *@* ]] && want="${selector#*@}"
   layout="$(config "${tool}")"
   check_kind "${tool}" "${layout}"
@@ -216,7 +233,7 @@ for selector in ${TOOLS:-}; do
   hit="$(pick "${want}" ${present[@]+"${present[@]}"})"
   if [[ -n "${hit}" ]]; then
     resolved[${tool}]="${hit}"
-    echo "cached ${tool} ${hit}"
+    state[${tool}]=cached
   else
     missing+=("${tool}@${want}")
   fi
@@ -234,6 +251,8 @@ if ((${#missing[@]})); then
     fi
     ver="$(jq -r --arg p "${annotation}" '.annotations[$p + ".folder-version"]' <<<"${layer}")"
     resolved[${tool}]="${ver}"
+    state[${tool}]=installed
+    size[${tool}]="$(jq -r .size <<<"${layer}")"
     install_layer "${tool}" "${ver}" "$(jq -r .digest <<<"${layer}")" "${tc}/${folder[${tool}]}/${ver}/${arch_folder[${tool}]}" &
     pids+=("$!")
   done
@@ -255,3 +274,33 @@ for tool in "${!resolved[@]}"; do
   esac
 done
 echo "versions=$(jq -cS . <<<"${versions}")" >>"${GITHUB_OUTPUT:-/dev/null}"
+
+# One line per tool: selector, version, installed (size, time, speed, registry) or cached, tool cache path.
+mb() { echo $((($1 + 524288) / 1048576)); }
+installed=0 cached=0 bytes=0 rows=()
+echo "infra-tools ${version} (linux/${arch})"
+for tool in ${order[@]+"${order[@]}"}; do
+  ver="${resolved[${tool}]}" home="${tc}/${folder[${tool}]}/${resolved[${tool}]}/${arch_folder[${tool}]}"
+  if [[ "${state[${tool}]}" == installed ]]; then
+    ms="$(cat "${tmp}/infra-tools-${tool}.ms")"
+    rm -f "${tmp}/infra-tools-${tool}.ms"
+    detail="installed $(mb "${size[${tool}]}") MB in $(printf '%d.%d' $((ms / 1000)) $((ms % 1000 / 100))) s ($(mb $((size[${tool}] * 1000 / (ms > 0 ? ms : 1)))) MB/s) from ${registry}"
+    installed=$((installed + 1)) bytes=$((bytes + size[${tool}]))
+  else
+    detail=cached cached=$((cached + 1))
+  fi
+  printf '%-16s %-20s %s -> %s\n' "${selected[${tool}]}" "${ver/-/+}" "${detail}" "${home}"
+  rows+=("| \`${selected[${tool}]}\` | ${ver/-/+} | ${detail} | \`${home}\` |")
+done
+total="$(($(now_ms) - started))"
+echo "done in $(printf '%d.%d' $((total / 1000)) $((total % 1000 / 100))) s: ${installed} installed ($(mb "${bytes}") MB), ${cached} cached"
+if [[ "${SUMMARY:-false}" == true && ${#rows[@]} -gt 0 ]]; then
+  {
+    echo "### ${prefix} ${version} (linux/${arch})"
+    echo
+    echo "| Selector | Version | Result | Tool cache path |"
+    echo "| --- | --- | --- | --- |"
+    printf '%s\n' "${rows[@]}"
+    echo
+  } >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+fi
