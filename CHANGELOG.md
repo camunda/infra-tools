@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 (2026-10-20)
+
+### Features
+
+* report each tool's version, source, size, time and path ([9076267](https://github.com/camunda/infra-tools/commit/907626792021a2c1b5929c2062d55f77ca0ae875))
+
+### Bugfixes
+
+* use the metadata server token directly on Artifact Registry ([9fd0b3f](https://github.com/camunda/infra-tools/commit/9fd0b3f77a9b96f77610899b90869ab29abb06b6))
+
 ## 0.1.0 (2026-10-19)
 
 ### Features
