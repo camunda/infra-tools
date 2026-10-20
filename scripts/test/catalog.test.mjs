@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { changesMarkdown, commitMessage, diffIndex, mergeIndex, renovateReleases, updateCatalog } from '../lib/catalog.mjs';
+import { changesMarkdown, commitMessage, diffIndex, mergeIndex, updateCatalog } from '../lib/catalog.mjs';
 import { normalizeTool } from '../lib/config.mjs';
 
 const node = normalizeTool('node', { source: { datasource: 'node-version' }, publish: { lines: { 24: { retired: ['24.19.0'] }, 26: { from: '26.11.1' } } } });
@@ -53,9 +53,4 @@ test('diff lists added, replaced and retired versions once per version', () => {
   assert.match(md, /### ➕ Added/);
   assert.match(md, /r1 → r2/);
   assert.match(md, /node-26\.11\.2-r1\]\(https:\/\/github\.com\/camunda\/infra-tools\/releases\/tag\/node-26\.11\.2-r1\)/);
-});
-
-test('Renovate releases are trimmed to X.Y.Z and deduplicated', () => {
-  const entries = [entry('java', '21.0.12+8.0.LTS', 1, 'linux/amd64', 'a'), entry('java', '21.0.12+101.0.LTS', 1, 'linux/amd64', 'b'), entry('node', '26.11.1', 1, 'linux/amd64', 'c')];
-  assert.deepEqual(renovateReleases(entries, 'java'), { releases: [{ version: '21.0.12' }] });
 });

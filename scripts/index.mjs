@@ -1,10 +1,10 @@
 // Usage: node index.mjs [--version X.Y.Z] [--previous X.Y.Z] [--registry <repo>] [--out dir] [--dry-run]
 // Builds the release index: previous index + published/ entries − retired versions. Pushes the per-platform artifact manifests
-// and the <version>-tools index (reusing the line image layers), and writes the release assets and notes.
+// and the <version>-tools index (reusing the line image layers), and writes tools.json (the release asset) and notes.md.
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { args, log, main, writeJson } from './lib/cli.mjs';
-import { ANNOTATION, changesMarkdown, diffIndex, mergeIndex, readCatalog, renovateReleases } from './lib/catalog.mjs';
+import { ANNOTATION, changesMarkdown, diffIndex, mergeIndex, readCatalog } from './lib/catalog.mjs';
 import { archFolder, DEFAULT_REGISTRY, isRetired, loadTools, PLATFORMS, ROOT, releaseVersion } from './lib/config.mjs';
 import { EMPTY_DIGEST, MEDIA, Registry } from './lib/registry.mjs';
 import { compareVersions } from './lib/versions.mjs';
@@ -106,8 +106,6 @@ main(async () => {
   const toolsJson = {};
   for (const e of entries) ((toolsJson[e.platform] ??= {})[e.tool] ??= {})[e.folderVersion] = { revision: e.revision, tag: e.tag, digest: e.digest, size: e.size };
   await writeJson(join(opts.out, 'tools.json'), toolsJson);
-  for (const tool of tools) await writeJson(join(opts.out, `${tool.name}.json`), renovateReleases(entries, tool.name));
-  await writeJson(join(opts.out, 'changes.json'), { version, previous: previous ?? null, ...changes });
-  await writeFile(join(opts.out, 'changes.md'), changesMarkdown({ version, previous, repository, changes }));
+  await writeFile(join(opts.out, 'notes.md'), changesMarkdown({ version, previous, repository, changes }));
   log(`added ${changes.added.length}, replaced ${changes.replaced.length}, retired ${changes.retired.length}`);
 });

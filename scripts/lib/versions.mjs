@@ -33,8 +33,6 @@ export function highestMatching(versions, selector) {
   return matching.length ? sortVersions(matching).at(-1) : undefined;
 }
 
-export const trimVersion = (version) => String(version).match(/^\d+(?:\.\d+){0,2}/)?.[0] ?? String(version);
-
 export const majorOf = (version) => numbers(version)[0];
 
 export function tagFor(tool, version, revision) {
