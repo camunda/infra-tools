@@ -9,21 +9,42 @@ Two actions with the same interface:
 
 | Action | For | Result |
 | --- | --- | --- |
-| `camunda/infra-tools/cache` | Tools with an official `setup-*` action | Tool cache filled; the `setup-*` action finds the tool there |
-| `camunda/infra-tools` | Other tools | Tool installed and added to `PATH` |
+| `camunda/infra-tools/cache` | Tools with an official `setup-*` action (e.g. java, node, go, python, uv, gcloud) | Tool cache filled; the `setup-*` action finds the tool there |
+| `camunda/infra-tools` | Other tools (e.g. jq, yq, kubectl, helm, maven, conftest) | Tool installed and added to `PATH` |
 
 ```yaml
 - uses: camunda/infra-tools/cache@<sha> # X.Y.Z
+  id: tools
   with:
     tools: |
-      java@21
+      java@21.0.12+101.0.LTS
+      node@26.12.0
+      go@1.25
+      gcloud
+- uses: actions/setup-java@<sha> # vX
+  with:
+    distribution: temurin
+    java-version: ${{ fromJSON(steps.tools.outputs.versions).java }}
 - uses: camunda/infra-tools@<sha> # X.Y.Z
   with:
     tools: |
       jq@1
+      kubectl@1.37
+      helm@4.3.1
 ```
 
-Tools already present on the runner are skipped. The release pinned by the action defines which tool versions are available.
+One tool per line, `<tool>[@<version>]`. The highest published version matching the selector is used:
+
+| Selector | Resolves to |
+| --- | --- |
+| `gcloud` | Latest version |
+| `java@21` | Latest `21.x.y` |
+| `go@1.25` | Latest `1.25.x` |
+| `node@26.12.0` | Exactly `26.12.0` |
+| `java@21.0.12+101.0.LTS` | One specific build |
+
+The resolved versions are available as JSON in the `versions` output. Tools already present on the runner are skipped. The
+release pinned by the action defines which tool versions are available.
 
 ## Tools
 
