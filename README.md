@@ -46,6 +46,14 @@ One tool per line, `<tool>[@<version>]`. The highest published version matching 
 The resolved versions are available as JSON in the `versions` output. Tools already present on the runner are skipped. The
 release pinned by the action defines which tool versions are available.
 
+On Ubuntu runners, both actions also add the infra-tools apt source (`enable-apt-source`, default `true`): `apt-get install`
+then takes curated packages from the registry, without `apt-get update`, and falls back to the Ubuntu mirrors for the rest.
+
+```yaml
+- uses: camunda/infra-tools@<sha> # X.Y.Z
+- run: sudo apt-get install -y --no-install-recommends clamav
+```
+
 ## Tools
 
 One folder per tool in [`tools/`](tools): a definition of where versions come from and which ones are published, plus an
@@ -53,6 +61,12 @@ install script and a test script.
 
 Each tool version is built for `amd64` and `arm64`, tested, and published as a one-layer container image. The layer holds the
 tool in the runner tool cache layout, ready to use once extracted.
+
+## apt packages
+
+Curated apt packages per Ubuntu release are listed in [`apt/`](apt) (for example `apt/noble.json`). Each package and the
+dependencies a plain Ubuntu lacks are built into one apt repository, tested, and published as an OCI artifact read by
+[apt-transport-oci](https://github.com/AkihiroSuda/apt-transport-oci).
 
 ## Releases
 

@@ -120,7 +120,8 @@ get() { curl -fsSL --retry 3 --retry-all-errors ${auth[@]+"${auth[@]}"} "$@"; }
 # Layers of the index for a platform, with their annotations.
 layers() {
   local digest
-  digest="$(get -H "Accept: ${accept_index}" "${api}/manifests/${tag}" | jq -r --arg a "$1" '.manifests[] | select(.platform.architecture == $a) | .digest')"
+  get -H "Accept: ${accept_index}" "${api}/manifests/${tag}" >"${tmp}/infra-tools-index.json" || return 1
+  digest="$(jq -r --arg a "$1" '.manifests[] | select(.platform.architecture == $a) | .digest' "${tmp}/infra-tools-index.json")"
   [[ -n "${digest}" ]] || { echo "::error::${prefix}: ${index} has no linux/$1 manifest"; return 1; }
   get -H "Accept: ${accept_manifest}" "${api}/manifests/${digest}" | jq -c '.layers'
 }
@@ -257,6 +258,69 @@ if ((${#missing[@]})); then
     pids+=("$!")
   done
   for pid in "${pids[@]}"; do wait "${pid}"; done
+fi
+
+# apt source: apt-transport-oci plus the release's repository for this Ubuntu release, preferred over the Ubuntu mirrors,
+# which stay as fallback. Returns non-zero on any failure; the caller then removes the source.
+apt_source() {
+  local id codename apt_digest list=/etc/apt/sources.list.d/infra-tools.list layout plugin layer ver home user secret t0 source config
+  id="$(sed -nE 's/^ID=//p' /etc/os-release 2>/dev/null)" codename="$(sed -nE 's/^VERSION_CODENAME=//p' /etc/os-release 2>/dev/null)"
+  [[ "${id}" == ubuntu && -n "${codename}" ]] || return 0
+  sudo -n true 2>/dev/null || { echo "::notice::${prefix}: no passwordless sudo, apt source not configured"; return 0; }
+  t0="$(now_ms)"
+  if [[ -z "${platform_layers:-}" ]]; then
+    connect "${arch}"
+    [[ -n "${platform_layers:-}" ]] || return 1
+  fi
+  apt_digest="$(jq -r --arg s "${codename}" --arg p "${annotation}" '[.manifests[] | select(.annotations[$p + ".apt.suite"] == $s) | .digest][0] // empty' "${tmp}/infra-tools-index.json")"
+  [[ -n "${apt_digest}" ]] || { echo "::notice::${prefix}: no apt repository for Ubuntu ${codename} in infra-tools ${version}"; return 0; }
+  source="deb [trusted=yes] oci://${registry}/${name}@${apt_digest} ${codename} main"
+  if grep -qxF "${source}" "${list}" 2>/dev/null; then
+    echo "apt: infra-tools source for Ubuntu ${codename} already configured"
+    return 0
+  fi
+
+  layout="$(config apt-transport-oci)" || return 1
+  layer="$(resolve "${platform_layers}" apt-transport-oci "")"
+  [[ -n "${layer}" ]] || return 1
+  ver="$(jq -r --arg p "${annotation}" '.annotations[$p + ".folder-version"]' <<<"${layer}")"
+  home="${tc}/$(jq -r .folder <<<"${layout}")/${ver}/$(jq -r .arch <<<"${layout}")"
+  if [[ ! -f "${home}.complete" ]]; then
+    install_layer apt-transport-oci "${ver}" "$(jq -r .digest <<<"${layer}")" "${home}" || return 1
+    rm -f "${tmp}/infra-tools-apt-transport-oci.ms"
+  fi
+  plugin="${home}/oci"
+  sudo install -m 0755 "${plugin}" /usr/lib/apt/methods/oci || return 1
+
+  # The method reads registry credentials from root's Docker config.
+  if [[ "${registry}" == *.pkg.dev ]]; then
+    user=oauth2accesstoken
+    secret="$(curl -fsS -m 5 -H "Metadata-Flavor: Google" \
+      http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -r .access_token)" || return 1
+  else
+    user=token secret="${TOKEN:-}"
+  fi
+  if [[ -n "${secret}" ]]; then
+    config="$(sudo cat /root/.docker/config.json 2>/dev/null || echo '{}')"
+    sudo install -d -m 0700 /root/.docker || return 1
+    jq --arg h "${registry}" --arg a "$(printf '%s:%s' "${user}" "${secret}" | base64 -w0)" '.auths[$h].auth = $a' <<<"${config}" \
+      | sudo install -m 0600 /dev/stdin /root/.docker/config.json || return 1
+  fi
+
+  echo "${source}" | sudo tee "${list}" >/dev/null || return 1
+  printf 'Package: *\nPin: release o=infra-tools\nPin-Priority: 600\n' | sudo tee /etc/apt/preferences.d/infra-tools >/dev/null || return 1
+  # shellcheck disable=SC2024 # the log is written by the runner user, on purpose
+  if ! sudo apt-get update -o Dir::Etc::SourceList="${list}" -o Dir::Etc::SourceParts=- -o APT::Get::List-Cleanup=0 \
+    >"${tmp}/infra-tools-apt.log" 2>&1; then
+    grep -E '^(E|W|Err):' "${tmp}/infra-tools-apt.log" | head -5
+    return 1
+  fi
+  echo "apt: infra-tools source for Ubuntu ${codename} (${apt_digest:7:12}) from ${registry} in $(printf '%d.%d' $((($(now_ms) - t0) / 1000)) $((($(now_ms) - t0) % 1000 / 100))) s, apt-transport-oci ${ver}"
+}
+
+if [[ "${ENABLE_APT_SOURCE:-true}" == true ]] && ! apt_source; then
+  sudo rm -f /etc/apt/sources.list.d/infra-tools.list /etc/apt/preferences.d/infra-tools
+  echo "::warning::${prefix}: apt source not configured, apt uses the Ubuntu mirrors"
 fi
 
 versions="{}"

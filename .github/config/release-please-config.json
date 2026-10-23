@@ -2,19 +2,57 @@
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
   "bump-minor-pre-major": true,
   "changelog-sections": [
-    { "type": "feat", "section": "Features" },
-    { "type": "fix", "section": "Bugfixes" },
-    { "type": "deps", "section": "Dependency Upgrades" },
-    { "type": "docs", "section": "Documentation" },
-    { "type": "refactor", "section": "Refactoring" },
-    { "type": "ci", "section": "CI/CD" },
-    { "type": "chore", "section": "Miscellaneous" }
+    {
+      "type": "feat",
+      "section": "Features"
+    },
+    {
+      "type": "fix",
+      "section": "Bugfixes"
+    },
+    {
+      "type": "deps",
+      "section": "Dependency Upgrades"
+    },
+    {
+      "type": "docs",
+      "section": "Documentation"
+    },
+    {
+      "type": "refactor",
+      "section": "Refactoring"
+    },
+    {
+      "type": "ci",
+      "section": "CI/CD"
+    },
+    {
+      "type": "chore",
+      "section": "Miscellaneous"
+    }
   ],
   "changelog-type": "github",
   "include-v-in-tag": false,
   "packages": {
     ".": {
-      "exclude-paths": ["tools", "docs", "build", "scripts/build.mjs", "scripts/fix-pr.mjs", "scripts/index.mjs", "scripts/lib", "scripts/package.json", "scripts/package-lock.json", "scripts/plan.mjs", "scripts/publish.mjs", "scripts/record.mjs", "scripts/test", ".github"]
+      "exclude-paths": [
+        "tools",
+        "docs",
+        "build",
+        "scripts/build.mjs",
+        "scripts/fix-pr.mjs",
+        "scripts/index.mjs",
+        "scripts/lib",
+        "scripts/package.json",
+        "scripts/package-lock.json",
+        "scripts/plan.mjs",
+        "scripts/publish.mjs",
+        "scripts/record.mjs",
+        "scripts/test",
+        ".github",
+        "apt",
+        "scripts/apt.mjs"
+      ]
     }
   },
   "release-type": "simple"

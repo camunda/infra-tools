@@ -1,0 +1,15 @@
+[
+  {
+    "version": "0.1.2",
+    "folderVersion": "0.1.2",
+    "revision": 1,
+    "tag": "apt-transport-oci-0.1.2-r1",
+    "cacheFolder": "apt-transport-oci",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-10-23T20:46:21.372Z"
+  }
+]

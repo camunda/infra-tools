@@ -108,6 +108,6 @@ test('lines validation', () => {
 
 test('every tool config is valid', async () => {
   const tools = await loadTools();
-  assert.equal(tools.length, 15);
+  assert.equal(tools.length, 16);
   for (const t of tools) assert.ok(t.archFolders.amd64 && t.archFolders.arm64, `${t.name}: arch folders`);
 });
