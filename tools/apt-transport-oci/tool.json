@@ -1,0 +1,14 @@
+{
+  "source": {
+    "datasource": "github-releases",
+    "packageName": "AkihiroSuda/apt-transport-oci",
+    "extractVersion": "^v(?<version>.+)$"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "0.1.2"
+      }
+    }
+  }
+}

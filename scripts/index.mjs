@@ -1,7 +1,8 @@
 // Usage: node index.mjs [--version X.Y.Z] [--previous X.Y.Z] [--registry <repo>] [--out dir] [--dry-run]
 // Builds the release index: previous index + published/ entries − retired versions. Pushes the per-platform artifact manifests
-// and the <version>-tools index (reusing the line image layers), and writes tools.json (the release asset) and notes.md.
-import { writeFile } from 'node:fs/promises';
+// and the <version>-tools index (reusing the line image layers, referencing the apt repositories of published/apt/*.json),
+// and writes tools.json (the release asset) and notes.md.
+import { readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { args, log, main, writeJson } from './lib/cli.mjs';
 import { ANNOTATION, changesMarkdown, diffIndex, mergeIndex, readCatalog } from './lib/catalog.mjs';
@@ -10,6 +11,7 @@ import { EMPTY_DIGEST, MEDIA, Registry } from './lib/registry.mjs';
 import { compareVersions } from './lib/versions.mjs';
 
 const ARTIFACT = 'application/vnd.camunda.infra-tools.index.v1+json';
+const APT_ARTIFACT = 'application/vnd.camunda.infra-tools.apt.v1+json';
 const keys = ['tool', 'version', 'line', 'folder-version', 'revision', 'tag', 'cache-folder', 'arch-folder', 'add-to-path'];
 const fields = ['tool', 'version', 'line', 'folderVersion', 'revision', 'tag', 'cacheFolder', 'archFolder', 'addToPath'];
 
@@ -27,7 +29,7 @@ const fromLayer = (platform, layer) => {
 async function readIndex(registry, reference) {
   const { json } = await registry.manifest(reference);
   const entries = [];
-  for (const m of json.manifests ?? []) {
+  for (const m of (json.manifests ?? []).filter((x) => x.platform)) {
     const platform = `${m.platform.os}/${m.platform.architecture}`;
     const { json: manifest } = await registry.manifest(m.digest);
     entries.push(...manifest.layers.map((l) => fromLayer(platform, l)));
@@ -83,6 +85,14 @@ main(async () => {
   }
   if (errors.length) throw new Error(errors.join('\n'));
 
+  const apt = [];
+  const aptDir = join(ROOT, 'published', 'apt');
+  for (const file of (await readdir(aptDir).catch(() => [])).filter((f) => f.endsWith('.json')).sort()) {
+    const record = JSON.parse(await readFile(join(aptDir, file), 'utf8'));
+    if (!(await registry.exists(record.digest))) throw new Error(`${file}: ${record.digest} does not exist`);
+    apt.push(record);
+  }
+
   const changes = diffIndex(before, entries);
   if (!opts['dry-run']) {
     await registry.ensureBlob(Buffer.from('{}'));
@@ -98,6 +108,9 @@ main(async () => {
       const [os, architecture] = platform.split('/');
       manifests.push({ mediaType: MEDIA.ociManifest, artifactType: ARTIFACT, digest, size, platform: { os, architecture } });
     }
+    for (const record of apt) {
+      manifests.push({ mediaType: MEDIA.ociManifest, artifactType: APT_ARTIFACT, digest: record.digest, size: record.size, annotations: { [`${ANNOTATION}.apt.suite`]: record.suite } });
+    }
     const index = { schemaVersion: 2, mediaType: MEDIA.ociIndex, artifactType: ARTIFACT, manifests, annotations: { 'org.opencontainers.image.version': version } };
     const { digest } = await registry.putManifest(index, MEDIA.ociIndex, `${version}-tools`);
     log(`pushed ${opts.registry}:${version}-tools@${digest}`);
@@ -106,6 +119,7 @@ main(async () => {
   const toolsJson = {};
   for (const e of entries) ((toolsJson[e.platform] ??= {})[e.tool] ??= {})[e.folderVersion] = { revision: e.revision, tag: e.tag, digest: e.digest, size: e.size };
   await writeJson(join(opts.out, 'tools.json'), toolsJson);
-  await writeFile(join(opts.out, 'notes.md'), changesMarkdown({ version, previous, repository, changes }));
+  const aptNotes = apt.map((r) => `- apt \`${r.suite}\`: ${r.requested.map((p) => `${p} ${Object.values(r.packages)[0][p]}`).join(', ')} (\`${r.digest}\`)`);
+  await writeFile(join(opts.out, 'notes.md'), [changesMarkdown({ version, previous, repository, changes }), ...(aptNotes.length ? ['', '### apt repositories', '', ...aptNotes] : [])].join('\n'));
   log(`added ${changes.added.length}, replaced ${changes.replaced.length}, retired ${changes.retired.length}`);
 });

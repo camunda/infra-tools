@@ -252,6 +252,9 @@ Releases (release-please, D25):
      `.mvn/wrapper/maven-wrapper.properties` asks for the same version (D32).
 - Selectors: `java@21` and `java@21.0.12` resolve to the highest build; an exact build can be pinned (`java@21.0.12+8`, `-` accepted).
 - Non-Linux runners: no-op. `mode: validate` checks a repository's selectors against the pinned index.
+- apt source (D46, `enable-apt-source`, default `true`): on Ubuntu runners with passwordless sudo, install apt-transport-oci, write the
+  registry credentials to root's Docker config, add the release's repository for the runner's Ubuntu release (priority 600) and refresh
+  only that source; on failure, remove it and warn.
 - Mirror (D44): with `INFRA_TOOLS_MIRROR` set, the action reads `<mirror>/infra-tools:<tag>` instead of
   `ghcr.io/camunda/infra-tools:<tag>`; on `*.pkg.dev` it sends the GKE metadata server token (Workload Identity) as bearer token
   directly, skipping the registry token endpoint (occasionally ~5 s on Artifact Registry), elsewhere it exchanges `token`; it falls back to ghcr.io with a warning when the mirror fails.
@@ -330,6 +333,7 @@ Releases (release-please, D25):
 | D43 | One JSON output `versions` on both actions (`fromJSON(steps.<id>.outputs.versions).java`), `{}` when nothing is installed. | One declared output per tool; both | Composite actions only expose declared outputs, so per-tool outputs need an `action.yml` edit for every new tool; an unknown output and an unknown JSON key are both empty, so per-tool outputs catch no more typos; adding a tool stays a `tools/<tool>/` folder. | decided |
 | D44 | Runner-level mirror: `INFRA_TOOLS_MIRROR` in the runner environment points the action to a copy of the registry (Artifact Registry for GKE runners, same digests), with Workload Identity credentials and fallback to ghcr.io. | Artifact Registry remote repository in front of ghcr.io (needs a PAT, as the package cannot be public); `index` input per workflow | No workflow change; no long-lived credential; same-region pulls for self-hosted runners; ghcr.io stays the source of truth. | proposed |
 | D45 | Bootstrap with the latest version of each line: `from` set to the latest patch (go `1.25`, node `24` and `26`, helm), the older Java 21.0.12 build ignored; pins in `versions` kept. First release: 20 versions (4 published during the PoC, 16 built from `main`). | Every version from the original `from` (27 versions) | Nothing consumes the older patches yet; halves the first build; a CI pinned to an older patch keeps its usual download. | decided |
+| D46 | apt packages over OCI: curated packages per Ubuntu release (`apt/<suite>.json`) plus the dependencies a plain image lacks, built into one apt repository (no Recommends, `Release` generated inside `dists/<suite>`), tested offline, pushed as one OCI artifact in the apt-transport-oci layout (one layer per file) and referenced from the `X.Y.Z-tools` index; the actions add it as a pinned, `trusted=yes` apt source (priority 600, Ubuntu mirrors as fallback) and install apt-transport-oci from the release (static build of the upstream release). Built from the live archive; the resolved versions are recorded in `published/apt/<suite>.json`. | Unpacking packages into the tool cache; a local repository per job; an Artifact Registry apt proxy; Ubuntu snapshots | Real apt installs (scripts, dpkg database) with the same registry, mirror and fallback as tools; plain `apt-get install` for users; digest pin instead of GPG; snapshot builds left for later (not verified). | decided |
 
 ## 8. Open questions
 
