@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0 (2026-10-23)
+
+### Features
+
+* configure an apt source for curated packages over OCI ([80ead5f](https://github.com/camunda/infra-tools/commit/80ead5f5718536c4169f86ac1085530dd525cdfa))
+* apt-transport-oci 0.1.2; apt repository for Ubuntu 24.04 (noble) with clamav 1.5.4
+
 ## 0.2.0 (2026-10-20)
 
 ### Features
