@@ -26,6 +26,10 @@ _Avoid_: hostedtoolcache, Actions cache
 The description of one tool: where its versions come from, which ones are published, how it is installed and how it is tested.
 _Avoid_: tool config, recipe
 
+**Tool onboarding**:
+The reviewed addition of a tool: its tool definition, plus the checks specific to that tool, such as how its `setup-*` action uses the tool cache.
+_Avoid_: tool request, tool migration
+
 **Version line**:
 A group of a tool's versions sharing a major or a minor (or every version in no other line) that is published under one rule.
 _Avoid_: line image, series, track, range
