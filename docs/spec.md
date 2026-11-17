@@ -1,42 +1,37 @@
 # infra-tools: high-level spec
 
-Living spec for the infra-tools PoC ([camunda/team-infrastructure#1138](https://github.com/camunda/team-infrastructure/issues/1138)),
-moved here from [camunda/infra-actions-runner#199](https://github.com/camunda/infra-actions-runner/pull/199).
-IDs are stable: entries are never deleted, only marked `superseded` with a link to their replacement.
-Status values: `proposed`, `decided`, `superseded` (requirements, decisions); `open`, `resolved` (questions).
+Living spec for `camunda/infra-tools` ([camunda/team-infrastructure#1138](https://github.com/camunda/team-infrastructure/issues/1138), [proposal](https://docs.google.com/document/d/1ZvdW-dCIMUz1a9uiVACGCJ1U5vBAFGlzWbPxm0pVKb0/edit)), first written for the PoC (`poc` branch). Terms are defined in [`GLOSSARY.md`](../GLOSSARY.md); the decisions that are hard to reverse are recorded as ADRs in [`docs/adr/`](adr/). IDs are stable: entries are never deleted, only marked `superseded` with a link to their replacement. Status values: `proposed`, `decided`, `superseded` (requirements, decisions); `open`, `resolved` (questions).
 
 ## 1. Problem and goals
 
-CI jobs download the same tools (JDK, Node.js, gcloud, …) at runtime, in every job. This costs time on every job, and occasionally
-stalls a job for minutes.
+CI jobs download their tools at runtime from several third parties (Adoptium, GitHub `actions/node-versions`, `dl.google.com`, Maven Central, …). Each one is a point of failure: downloads occasionally stall a job for minutes or fail (INC-7417, INC-7943). The main wins are reliability and cost; speed improves significantly where we own the infrastructure, and depends on GitHub elsewhere.
 
 | ID | Goal |
 | --- | --- |
-| G1 | Remove runtime tool downloads from CI jobs, on GitHub-hosted and self-hosted Linux runners. |
-| G2 | Shorten the critical path to merging into `camunda/camunda` `main` (merge queue). |
+| G1 | Reliability: one co-located source per runner environment instead of several third parties, without a new single point of failure (ADR 0007). |
+| G2 | Download time equal or faster than today, on GitHub-hosted and self-hosted Linux runners. |
 | G3 | Remove download stalls (worst cases observed: 178 s JDK, 614 s gcloud). |
 | G4 | Keep tool versions current with low effort, without gaps. |
+| G5 | Negligible increase in storage and network transfer cost. |
+| G6 | Same onboarding on every runner: one action step per job, versions updated by Renovate. |
 
-Baseline (`camunda/camunda`, `ci.yml` on `main`): see [section 9](#9-poc-plan-and-evidence).
+Baseline and PoC results (`camunda/camunda`, `ci.yml` on `main`): see [section 9](#9-poc-plan-and-evidence).
 
 ## 2. Scope
 
-In scope:
+Phases, in order (from the proposal's plan):
 
-- A dedicated repository `camunda/infra-tools` (D37), internal for the PoC (Q14).
-- Tool layers in a registry, one layer per tool version, published continuously from upstream releases.
-- Per-tool releases and releases of the index of available tool versions.
-- Two composite actions extracting selected tool layers into the runner tool cache: the root action and `cache` (D42).
-- Renovate support for consumers (action pin, tool selectors).
-- A `camunda/camunda` PoC PR measuring the setup time.
+1. **Tools** (current phase): finish the repository, the action and the release mechanics. Tools published for Linux on `amd64` and `arm64`; one action (ADR 0006) with closest-registry selection, fallbacks and per-tool logs; scheduled publication and releases, with alerts and notifications; mirrors (ADR 0007); install figures sent to CI Analytics.
+2. **Rollout to `camunda/camunda`**: onboard its workflows, with the mirror configured once per self-hosted runner set. Other repositories follow on demand.
+3. **Self-hosted runner optimisation**: freeze the runner image (no new tools, removals where safe), then validate image volumes and image streaming for the most used tools, chosen from CI Analytics data.
+4. **apt packages** (ADR 0008): a curated OCI apt repository read with apt-transport-oci, natively on Ubuntu 26.04 or earlier on 24.04 by shipping the plugin with the tools. Built in the PoC (D46).
+5. **Other platforms**: a selected set of tools for macOS and Windows, on `amd64` and `arm64`.
+6. (Optional) **Usage-based recommendations**: tools and versions to retire, and frequently downloaded tools to pre-install per team.
 
-Out of scope (for now):
+Out of scope:
 
-- Self-hosted runner image built from the tool layers (assembled image, deployment to runner sets).
-- Registry mirrors (GAR, Harbor, ECR); GHCR only.
 - Satellite actions in `camunda/infra-global-github-actions` (e.g. `submit-test-status`), kept unchanged.
 - Dev runners for `camunda/camunda`.
-- apt packages on GitHub-hosted runners, macOS and Windows runners.
 - Caches that are not tools (Maven repository, npm/yarn caches).
 
 ## 3. Requirements
@@ -63,19 +58,16 @@ Out of scope (for now):
 
 ## 4. Concepts
 
-| Term | Meaning |
+Terms are defined in [`GLOSSARY.md`](../GLOSSARY.md). Where each one lives in the repository:
+
+| Term | In the repository |
 | --- | --- |
-| Tool | A program installed into the tool cache, e.g. `node`, `java`, `gcloud`. Its folder name in `tools/` is its selector name. |
-| Tool config | `tools/<tool>/tool.json`: upstream source (Renovate datasource), version lines (`from`, pinned, ignored, revised and retired versions) and tool cache layout. |
-| Revision | Rebuild number of a given tool version. Defaults to 1; bumped to override an already published layer. |
-| Line image | Single-layer `FROM scratch` image holding one tool version, tagged `<tool>-<version>-r<revision>` (`+` written as `-`). Never run. |
-| Reconciler | Scheduled job publishing every upstream version in range that is not published yet, and opening fix PRs for failures. |
-| Fix PR | PR opened by the reconciler for a version that fails to build or test; the fix lands in it. |
-| Tool release | GitHub release `<tool>-<version>-r<revision>` documenting one published line image. |
-| Catalog | `published/<tool>.json`: bot-written record of published versions; the only path that triggers a release. |
-| Index | OCI artifact `<X.Y.Z>-tools`: for each platform, every tool version available in release `X.Y.Z` with its layer digest. |
-| Release | Release-please release `X.Y.Z` of the actions and the index, with JSON assets. |
-| Selector | `<tool>[@<version prefix>]` in the action's `tools` input, resolved to the highest matching version of the index. |
+| Tool definition | `tools/<tool>/`: `tool.json`, `install.sh`, `test.sh` (+ `Dockerfile` when needed). The folder name is the selector name. |
+| Tool image | Single-layer `FROM scratch` image tagged `<tool>-<version>-r<revision>` (`+` written as `-`). |
+| Tool release | GitHub release with the tool image's tag. |
+| Catalog | `published/<tool>.json`; the only path that triggers a release. |
+| Index | OCI artifact `<X.Y.Z>-tools`. |
+| Release | Release-please release `X.Y.Z` of the action and the index, with JSON assets. |
 
 ## 5. Components
 
@@ -85,19 +77,21 @@ Out of scope (for now):
 infra-tools/
 ├── README.md                     # usage, tools available, add a tool / fix a build
 ├── CHANGELOG.md                  # release-please
-├── action.yml                    # plain tools: ready to use (camunda/infra-tools@…)
-├── cache/action.yml              # tools with a setup-* action: pre-fill the tool cache (camunda/infra-tools/cache@…)
+├── GLOSSARY.md                   # domain language
+├── action.yml                    # the action: tools and tool-cache inputs (camunda/infra-tools@…, ADR 0006)
 ├── tools/                        # one folder per tool: tool.json, install.sh, test.sh (+ Dockerfile when needed, D31)
 ├── docs/
-│   └── spec.md
+│   ├── spec.md
+│   ├── adr/                      # architecture decision records
+│   └── agents/                   # agent skills configuration
 ├── build/                        # image build: Bake and Dockerfiles (out/ gitignored)
 │   ├── docker-bake.hcl           # shared targets: builder, _line, _test
 │   ├── builder.Dockerfile        # build-platform image where install.sh runs (download, install-tool)
-│   ├── tool.Dockerfile           # default tool build → FROM scratch line image
+│   ├── tool.Dockerfile           # default tool build → FROM scratch tool image
 │   └── test.Dockerfile           # runs test.sh on the target platform
 ├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index (+ lib/, test/)
 │   ├── package.json              # renovate (getPkgReleases)
-│   └── action/setup.sh           # implementation of both actions
+│   └── action/setup.sh           # implementation of the action
 ├── published/                    # bot-written record of published versions
 └── .github/
     ├── CODEOWNERS
@@ -109,8 +103,7 @@ infra-tools/
 
 ### 5.2 Tool definition and build
 
-`tool.json` has three blocks (D38): `source` (Renovate lookup options, passed as-is), `publish` (which versions are published)
-and `install` (tool cache layout); unknown blocks and options are rejected. Blocks with only defaults can be left out.
+`tool.json` has three blocks (D38): `source` (Renovate lookup options, passed as-is), `publish` (which versions are published) and `install` (tool cache layout); unknown blocks and options are rejected. Blocks with only defaults can be left out.
 
 | Option | Default | Explanation |
 | --- | --- | --- |
@@ -122,7 +115,7 @@ and `install` (tool cache layout); unknown blocks and options are rejected. Bloc
 | `publish.minAge` | `1 day` | Wait after an upstream release before building it; a line can override it. |
 | `install.cacheFolder` | tool name | Tool cache folder, matching what the tool's `setup-*` action expects (e.g. `Java_Temurin-Hotspot_jdk`). |
 | `install.archFolders` | `{"amd64": "x64", "arm64": "arm64"}` | Arch folder per platform, as the `setup-*` action expects it (e.g. `aarch64` for Java). |
-| `install.addToPath` | none | Folder added to `PATH`: the tool is ready to use (`setup` action); without it, `cache` action. |
+| `install.addToPath` | none | Folder added to `PATH`: the tool is a plain tool (`tools` input); without it, a tool-cache tool (`tool-cache` input). |
 
 Line options (`publish.lines.<key>`):
 
@@ -136,10 +129,7 @@ Line options (`publish.lines.<key>`):
 | `minAge` | Overrides `publish.minAge` for the line. |
 | `reason` | Why the line exists (JSON has no comments). |
 
-Each version belongs to exactly one line: lines never overlap (`26` and `26.11` together, or a line at or above `"*".from`, are
-rejected), and `"*"` covers versions in no other line from its `from` on. A line's state follows from its options: with `from`,
-it publishes new versions; with only `versions`, only those; with neither, nothing new (stopped, kept for `retired` or
-`revisions`); with `"retired": "all"`, its versions leave the next release.
+Each version belongs to exactly one line: lines never overlap (`26` and `26.11` together, or a line at or above `"*".from`, are rejected), and `"*"` covers versions in no other line from its `from` on. A line's state follows from its options: with `from`, it publishes new versions; with only `versions`, only those; with neither, nothing new (stopped, kept for `retired` or `revisions`); with `"retired": "all"`, its versions leave the next release.
 
 ```json
 {
@@ -158,19 +148,10 @@ it publishes new versions; with only `versions`, only those; with neither, nothi
 }
 ```
 
-Lines (D41), per upstream version: find its line (the explicit line it belongs to, else `"*"` from its `from` on, else none →
-skip); `"retired": "all"`, `ignoredVersions` or `retired` → skip; in `versions` or `revisions` → publish (no stability or
-`minAge` check); older than `from` or no `from` → skip; unstable → skip; newer than `minAge` → wait; otherwise publish.
-Validation rejects unknown options, line keys that are not a major, a minor or `"*"`, empty lines, line options naming versions
-outside their line, `versions` at or above `from`, `"*"` without `from` or with `versions` or `"retired": "all"`, other options
-next to `"retired": "all"`, nested lines and lines at or above `"*".from`. The catalog, index annotations and release notes record
-each version's line.
+Lines (D41), per upstream version: find its line (the explicit line it belongs to, else `"*"` from its `from` on, else none → skip); `"retired": "all"`, `ignoredVersions` or `retired` → skip; in `versions` or `revisions` → publish (no stability or `minAge` check); older than `from` or no `from` → skip; unstable → skip; newer than `minAge` → wait; otherwise publish. Validation rejects unknown options, line keys that are not a major, a minor or `"*"`, empty lines, line options naming versions outside their line, `versions` at or above `from`, `"*"` without `from` or with `versions` or `"retired": "all"`, other options next to `"retired": "all"`, nested lines and lines at or above `"*".from`. The catalog, index annotations and release notes record each version's line.
 
-- Build stages (`build/tool.Dockerfile`): `builder` image (build platform, never published) → `install` stage: `install-tool` runs `install.sh` with
-  `VERSION`, `TARGETARCH`, `ARCH` (tool cache arch folder) and `DEST`, then marks `DEST` complete →
-  `FROM scratch` line image holding `/opt/hostedtoolcache/<cacheFolder>/<folder version>/<arch>` (D34).
-- Test stage (`build/test.Dockerfile`): Ubuntu 24.04 on the target platform with the packages runners have (`python3`, …),
-  layer copied in, `test.sh` run with `VERSION` and `TOOL_DIR`; never published.
+- Build stages (`build/tool.Dockerfile`): `builder` image (build platform, never published) → `install` stage: `install-tool` runs `install.sh` with `VERSION`, `TARGETARCH`, `ARCH` (tool cache arch folder) and `DEST`, then marks `DEST` complete → `FROM scratch` tool image holding `/opt/hostedtoolcache/<cacheFolder>/<folder version>/<arch>` (D34).
+- Test stage (`build/test.Dockerfile`): Ubuntu 24.04 on the target platform with the packages runners have (`python3`, …), layer copied in, `test.sh` run with `VERSION` and `TOOL_DIR`; never published.
 - Version differences: `if version ≥ X` in the default `install.sh` and `test.sh` (D22).
 - Versions with build metadata: `+` is written as `-` in folder names and tags (`java-21.0.12-101.0.LTS-r1`).
 
@@ -185,20 +166,17 @@ Runs on a schedule, on push to `main` and on demand; one run at a time (`concurr
    - Skip versions with an open fix PR, or a fix PR closed without merge (treated as ignored).
    - Plan = remaining versions whose tag `<tool>-<version>-r<revision>` is missing (404; any other registry error fails the run).
 2. Build and test each planned version and platform (Bake).
-3. Publish each success: push the line image, create the tool release (skip if it exists).
-4. Record: update `published/<tool>.json`, one commit per run with one conventional entry per version
-   (`feat(node): publish 26.11.2`, `fix(java): republish 21.0.12+101.0.LTS (r2)`, `feat(node)!: retire 24.19.0`).
+3. Publish each success: push the tool image, create the tool release (skip if it exists).
+4. Record: update `published/<tool>.json`, one commit per run with one conventional entry per version (`feat(node): publish 26.11.2`, `fix(java): republish 21.0.12+101.0.LTS (r2)`, `feat(node)!: retire 24.19.0`).
 5. Fix PRs, per failure:
-   - Same tool and major with an open fix PR and the same error: add the version to it; otherwise open
-     `tool-build/<tool>-<version>` (label `tool-build`), starting from an empty commit (the version is already in its line).
+   - Same tool and major with an open fix PR and the same error: add the version to it; otherwise open `tool-build/<tool>-<version>` (label `tool-build`), starting from an empty commit (the version is already in its line).
    - Body: failing step, log excerpt, run link; comment only when the error changes.
    - Close the PR (with a comment) when the version builds again; maintainers can split a grouped PR.
 6. Completeness check (R17): `plan --check` must find nothing left to publish; fail and alert otherwise.
 
 Scripts (`scripts/`): `plan.mjs` (1, 6), `build.mjs` (2, push), `publish.mjs` (tool releases), `record.mjs` (4), `fix-pr.mjs` (5).
 
-Safeguards: never overwrite a tag; fail when a version of the catalog lost its tag; datasource or registry outages fail the run
-(never read as "no versions"); retention policies exclude `*-r*` tags.
+Safeguards: never overwrite a tag; fail when a version of the catalog lost its tag; datasource or registry outages fail the run (never read as "no versions"); retention policies exclude `*-r*` tags.
 
 ### 5.4 Pull requests
 
@@ -210,15 +188,12 @@ Safeguards: never overwrite a tag; fail when a version of the catalog lost its t
 
 Tool releases:
 
-- Created by the reconciler when it publishes a line image; tag `<tool>-<version>-r<revision>` on the commit the layers were
-  built from, never marked latest (GitHub shows the newest one as latest until the first `X.Y.Z` release exists).
-- Content: upstream project link, usage snippet (action and selector), tool cache path, layer digest and size per platform,
-  image digest, line, revision and build commit. `publish.mjs --update` rewrites existing releases and moves their tag.
+- Created by the reconciler when it publishes a tool image; tag `<tool>-<version>-r<revision>` on the commit the layers were built from, never marked latest (GitHub shows the newest one as latest until the first `X.Y.Z` release exists).
+- Content: upstream project link, usage snippet (action and selector), tool cache path, layer digest and size per platform, image digest, line, revision and build commit. `publish.mjs --update` rewrites existing releases and moves their tag.
 
 Releases (release-please, D25):
 
-- One component at `.`, `exclude-paths`: `tools`, `docs`, `build`, `.github` and every entry of `scripts/` except `action/`.
-  Bot record commits (`published/`) and action changes (`action.yml`, `cache/`, `scripts/action/`) produce release PRs.
+- One component at `.`, `exclude-paths`: `tools`, `docs`, `build`, `.github` and every entry of `scripts/` except `action/`. Bot record commits (`published/`) and action changes (`action.yml`, `scripts/action/`) produce release PRs.
 - Config in `.github/config/` (infra convention); tags `X.Y.Z` (D30).
 - A daily workflow merges the open release PR if it is green; the merge creates `X.Y.Z`.
 - On `release_created` (`index.mjs`):
@@ -227,37 +202,23 @@ Releases (release-please, D25):
   3. Compare with the previous index; append the Added / Replaced / Retired tables (with tool release links) to the notes.
   4. Attach `tools.json` (every tool version per platform with its tag, layer digest and size); the tables go in the notes.
 
-### 5.6 Actions (root, `cache`)
+### 5.6 Action
 
-- `camunda/infra-tools@<sha> # X.Y.Z` (root): plain tools (`addToPath`); ready to use. `camunda/infra-tools/cache@<sha> # X.Y.Z`:
-  tools with an official `setup-*` action (`tool.json` without `addToPath`); pre-fills the tool cache, the `setup-*` step then
-  finds them. Each rejects the other kind with a message naming the right action (D42).
-- One implementation (`scripts/action/setup.sh`, bash, curl, jq; `KIND` (`setup`, `cache`) selects the action); both actions share the release version,
-  read from the release-please manifest at the pinned commit; there is no `version` input.
-- Inputs: `tools` (selectors, one per line), `token`, `mode` (`extract`, `validate`), `index` (override, for tests and mirrors),
-  `summary` (`true`: table of the selected tools in the job summary).
-- Log: the release and platform, one line per tool (selector, resolved version, `installed` with size, duration, speed and
-  registry, or `cached`, and the tool cache path) and a total; login and index timings in a collapsed group; layer digests as
-  debug messages.
-  Output: `versions`, JSON of the resolved version per selected tool in the form `setup-*` actions expect
-  (`{"java":"21.0.12+101.0.LTS"}`, read with `fromJSON(steps.<id>.outputs.versions).java`); `{}` when nothing is installed (D43).
-- Tool layouts (cache folder, arch folders, `addToPath`) come from `tools/*/tool.json` at the pinned commit, so present tools
-  need no network.
+- `camunda/infra-tools@<sha> # X.Y.Z`, one action with two selector inputs (D47, ADR 0006): `tools` for plain tools (`tool.json` with `addToPath`), ready to use; `tool-cache` for tool-cache tools (`tool.json` without `addToPath`), pre-filled in the tool cache so the `setup-*` step finds them. A tool listed in the wrong input fails with a message naming the right input.
+- Implementation: `scripts/action/setup.sh` (bash, curl, jq). The release version is read from the release-please manifest at the pinned commit; there is no `version` input.
+- Inputs: `tools` and `tool-cache` (selectors, one per line), `token`, `mode` (`extract`, `validate`), `index` (override, for tests and mirrors), `summary` (`true`: table of the selected tools in the job summary).
+- Log: the release and platform, one line per tool (selector, resolved version, `installed` with size, duration, speed and registry, or `cached`, and the tool cache path) and a total; login and index timings in a collapsed group; layer digests as debug messages. Output: `versions`, JSON of the resolved version per selected tool in the form `setup-*` actions expect (`{"java":"21.0.12+101.0.LTS"}`, read with `fromJSON(steps.<id>.outputs.versions).java`); `{}` when nothing is installed (D43).
+- Tool layouts (cache folder, arch folders, `addToPath`) come from `tools/*/tool.json` at the pinned commit, so present tools need no network.
 - Flow:
   1. For each selector, look for a complete matching version in `$RUNNER_TOOL_CACHE`; if every tool is present, stop (R4, R5).
   2. Otherwise fetch `X.Y.Z-tools` from GHCR and pick the platform manifest.
   3. Resolve each missing selector to the highest matching version, build metadata included; fail if none.
   4. Pull each missing layer by digest, verify it, extract it into the tool cache and mark it complete; retry on failure.
-  5. Root action only: add `addToPath` folders to `PATH`; link docker-compose as a Docker CLI plugin; link Maven for `./mvnw` when
-     `.mvn/wrapper/maven-wrapper.properties` asks for the same version (D32).
+  5. Plain tools only: add `addToPath` folders to `PATH`; link docker-compose as a Docker CLI plugin; link Maven for `./mvnw` when `.mvn/wrapper/maven-wrapper.properties` asks for the same version (D32).
 - Selectors: `java@21` and `java@21.0.12` resolve to the highest build; an exact build can be pinned (`java@21.0.12+8`, `-` accepted).
 - Non-Linux runners: no-op. `mode: validate` checks a repository's selectors against the pinned index.
-- apt source (D46, `enable-apt-source`, default `true`): on Ubuntu runners with passwordless sudo, install apt-transport-oci, write the
-  registry credentials to root's Docker config, add the release's repository for the runner's Ubuntu release (priority 600) and refresh
-  only that source; on failure, remove it and warn.
-- Mirror (D44): with `INFRA_TOOLS_MIRROR` set, the action reads `<mirror>/infra-tools:<tag>` instead of
-  `ghcr.io/camunda/infra-tools:<tag>`; on `*.pkg.dev` it sends the GKE metadata server token (Workload Identity) as bearer token
-  directly, skipping the registry token endpoint (occasionally ~5 s on Artifact Registry), elsewhere it exchanges `token`; it falls back to ghcr.io with a warning when the mirror fails.
+- apt source (D46, `enable-apt-source`, default `true`): on Ubuntu runners with passwordless sudo, install apt-transport-oci, write the registry credentials to root's Docker config, add the release's repository for the runner's Ubuntu release (priority 600) and refresh only that source; on failure, remove it and warn.
+- Mirror (D44, ADR 0007; how mirrors are filled: Q16): with `INFRA_TOOLS_MIRROR` set, the action reads `<mirror>/infra-tools:<tag>` instead of `ghcr.io/camunda/infra-tools:<tag>`; on `*.pkg.dev` it sends the GKE metadata server token (Workload Identity) as bearer token directly, skipping the registry token endpoint (occasionally ~5 s on Artifact Registry), elsewhere it exchanges `token`; it falls back to ghcr.io with a warning when the mirror fails.
 
 ### 5.7 Renovate
 
@@ -265,8 +226,8 @@ Releases (release-please, D25):
 | --- | --- | --- |
 | Tool versions | `tools/*/tool.json` | Not Renovate: the reconciler (D21). |
 | Repository dependencies | `scripts/package.json` (renovate), actions, base images | Default Renovate config. |
-| Action pins | Consumer workflows | Renovate's built-in github-actions manager (`@<sha> # X.Y.Z`; both actions share one version, D30). |
-| Selectors | Consumer `tools: \|` blocks | Preset `github>camunda/infra-tools//.github/renovate-preset.json5`: custom datasource reading `published/<tool>.json` at the pinned tag through the contents API (D29); npm versioning keeps each selector's precision; exact build pins are left alone. |
+| Action pins | Consumer workflows | Renovate's built-in github-actions manager (`@<sha> # X.Y.Z`, D30). |
+| Selectors | Consumer `tools: \|` and `tool-cache: \|` blocks | Preset `github>camunda/infra-tools//.github/renovate-preset.json5`: custom datasource reading `published/<tool>.json` at the pinned tag through the contents API (D29); npm versioning keeps each selector's precision; exact build pins are left alone. |
 
 ## 6. Flows
 
@@ -288,9 +249,9 @@ Releases (release-please, D25):
 
 | ID | Decision | Options considered | Why | Status |
 | --- | --- | --- | --- | --- |
-| D1 | Separate image and package, independent of the runner image, same upstream base for tests. | Extend the runner image | Independent lifecycle; no impact on runners. | decided |
-| D2 | One layer per tool version in the tool cache layout. | Tarball per tool; generic OCI artifacts | `setup-*` actions find tools without change; one layer can be pulled alone. | decided |
-| D3 | Index as OCI artifact `X.Y.Z-tools` referencing existing layers, plus a GitHub release pointing to it. | `tools.json` release asset only | The action only needs the registry; no layer is uploaded twice. | decided |
+| D1 | Separate image and package, independent of the runner image, same upstream base for tests (ADR 0001). | Extend the runner image | Independent lifecycle; no impact on runners. | decided |
+| D2 | One layer per tool version in the tool cache layout (ADR 0002). | Tarball per tool; generic OCI artifacts | `setup-*` actions find tools without change; one layer can be pulled alone. | decided |
+| D3 | Index as OCI artifact `X.Y.Z-tools` referencing existing layers, plus a GitHub release pointing to it (ADR 0004). | `tools.json` release asset only | The action only needs the registry; no layer is uploaded twice. | decided |
 | D4 | Renovate selector data as release assets (`<tool>.json`). | Read the OCI index | A Renovate custom datasource cannot perform the registry token exchange. | superseded by D29 |
 | D5 | Present = complete matching version in the tool cache only. | Also probe binaries on `PATH`; known system paths | Predictable; binaries outside the tool cache stay the job's concern. | decided |
 | D6 | Selectors at the precision the consuming CI accepts. | Exact versions | Exact versions miss compatible tools already present. | decided |
@@ -300,15 +261,15 @@ Releases (release-please, D25):
 | D10 | Build when the tag `<tool>-<version>-r<revision>` is missing; revisions per version. | Compare with the previous index; recipe hash | One rule for new versions and overrides; safe to rerun. | decided |
 | D11 | Majors through a `current` line plus a fork workflow. | One manual PR per major | Renovate cannot add a version line on its own. | superseded by D21 |
 | D12 | PoC published from the `1138-*` branch of `infra-actions-runner` by a manual tag, to GHCR only. | Releases from `main`; GAR | PoC only; no impact on `main`. | superseded by D26 |
-| D13 | Self-hosted runner image out of scope. | Assemble it from the line images | Focus on the action and the index first. | decided |
+| D13 | Self-hosted runner image out of scope. | Assemble it from the tool images | Focus on the action and the index first. | decided |
 | D14 | Satellite actions of `infra-global-github-actions` unchanged in the PoC. | Route gcloud versions through them | Keeps the PoC small. | decided |
 | D15 | `camunda/camunda` calls the action centrally in `setup-build` and `build-frontend`; single-job tools per job; redundant setup steps removed. | Per job only | Covers most jobs with two call sites. | decided |
 | D16 | Measure with one PoC branch compared against BigQuery history. | Paired baseline and toolset branches | Enough for a first signal. | decided |
 | D17 | No dev runners for `camunda/camunda`. | Dev runner group with the toolset image | The action must work on today's runners. | decided |
 | D18 | Manual releases for the PoC; automatic releases with a derived semver later. | Automatic from the start | Not needed to prove the gain. | superseded by D25 |
-| D19 | Line images are pushed on merge; a release only assembles the index from existing tags. | Push line images during the release | Fast releases with no build. | superseded by D21 |
+| D19 | Tool images are pushed on merge; a release only assembles the index from existing tags. | Push tool images during the release | Fast releases with no build. | superseded by D21 |
 | D20 | Release notes include the Added / Replaced / Retired tables from comparing the new index with the previous one, and as a dry-run comment on PRs. | Hand-written notes; git log only | Lists exactly what consumers gain or lose; reviewers see the next release before merging. | decided |
-| D21 | A scheduled reconciler publishes every upstream version in range (Renovate datasources) and opens fix PRs for failures, grouped per tool and major when the error matches. | Renovate PR per version line; reconciler without PRs ([containerbase](https://github.com/containerbase/node-prebuild)); moving lines (docker-library) | No gaps (R15), bursts handled; review where it matters; same model as [actions/node-versions](https://github.com/actions/node-versions). | decided |
+| D21 | A scheduled reconciler publishes every upstream version in range (Renovate datasources) and opens fix PRs for failures, grouped per tool and major when the error matches (ADR 0005). | Renovate PR per version line; reconciler without PRs ([containerbase](https://github.com/containerbase/node-prebuild)); moving lines (docker-library) | No gaps (R15), bursts handled; review where it matters; same model as [actions/node-versions](https://github.com/actions/node-versions). | decided |
 | D22 | Version differences with `if version ≥ X` in the default `install.sh` and `test.sh`; per-range override folders only if needed later. | Per-line folders from the start | Most tools are download-and-unpack; same approach as GitHub's builders. | decided |
 | D23 | Version identity is the exact string; ordering includes build metadata; `startVersion` inclusive; ranges resolve to the highest build; exact builds can be pinned. | One build per `X.Y.Z` (newest replaces older) | Keeps every build (R16); semver equality would drop builds. | decided |
 | D24 | One GitHub release per published tool version, created directly by the reconciler (idempotent). | No per-tool release; release-please per tool | Traceability per version; release-please cannot release upstream-driven versions. | decided |
@@ -316,12 +277,12 @@ Releases (release-please, D25):
 | D26 | Dedicated public repository `camunda/infra-toolset`; `tools/` and docs prominent, build tooling (`.build/`), catalog (`.catalog/`) and action implementation (`.action/`) hidden. | Subfolder of `infra-actions-runner` | Own release flow and tags; public package and assets for public consumers. | superseded by D37, layout by D42 |
 | D27 | The action lives at the root of `camunda/infra-toolset`, with one version line for the action and the toolset; no `version` input. | Action in `infra-global-github-actions` with a `version` input | One pin gives a consistent action and index; simpler Renovate. | superseded by D37 (one version line kept) |
 | D28 | Publish a version only when available for every platform; open a fix PR after N days otherwise. | Publish per platform as available | An index entry must exist for every platform. | decided |
-| D29 | Renovate selector data read from `published/<tool>.json` at the release tag through the GitHub contents API; the release only attaches `tools.json`, for people and scripts. | Release assets (D4) | Works while the repository is internal (Renovate sends its token to `api.github.com`), no extra file. | decided |
+| D29 | Renovate selector data read from `published/<tool>.json` at the release tag through the GitHub contents API; the release only attaches `tools.json`, for people and scripts (ADR 0004). | Release assets (D4) | Works while the repository is internal (Renovate sends its token to `api.github.com`), no extra file. | decided |
 | D30 | Release tags `X.Y.Z` (infra convention, release-please config in `.github/config/`); the action pin is tracked by Renovate's github-actions manager. | `toolset-X.Y.Z` with a custom manager | Tool release tags (`node-26.11.2-r1`) are not versions, so no prefix is needed. | decided |
 | D31 | One generic `build/tool.Dockerfile`; a tool adds its own `Dockerfile` only when needed (python). | A Dockerfile per tool | 14 of 15 tools build the same way. | decided |
 | D32 | The action links the tool cache Maven into `~/.m2/wrapper/dists/<name>/<hash>` when the wrapper asks for the same version. | Only `mvn` on `PATH`; drop Maven | `./mvnw` uses it without downloading (same hash as `mvnw`). | decided |
 | D33 | Build scripts in Node.js (ESM, no build step, `node:test`); bash for `install.sh`, `test.sh` and the action. | TypeScript; bash scripts | `plan` needs Renovate's library; no compile step. | decided |
-| D34 | Line image layers hold `opt/hostedtoolcache/...`; the action strips two path components. | Tool cache folders at the layer root | Layers stay usable as-is by a future runner image (D13). | decided |
+| D34 | Tool image layers hold `opt/hostedtoolcache/...`; the action strips two path components (ADR 0003). | Tool cache folders at the layer root | Layers stay usable as-is by a future runner image (D13). | decided |
 | D35 | Node versions use `semver` versioning. | Renovate's `node` versioning | `node` versioning marks non-LTS majors (Node 26 today) unstable, which would skip them. | decided |
 | D36 | Python from GitHub's prebuilt archives, installed with their `setup.sh` on the target platform. | Build from source | Same build as GitHub-hosted runners; only runs from `/opt/hostedtoolcache` (Q5). | decided |
 | D37 | Repository `camunda/infra-tools` (renamed from `infra-toolset`) with two actions on one version line: `tool-cache` (tools with a `setup-*` action, pre-fills the tool cache) and `setup` (plain tools, ready to use); each rejects the other kind; no root action. | One root action; `cache` instead of `tool-cache`; names `infra-toolset`, `infra-prebuilt-tools`, `infra-ci-tools` | Each name matches what happens: java still needs `setup-java`, jq needs nothing; `tool-cache` avoids confusion with `actions/cache`. | superseded by D42 (repository name and two actions kept) |
@@ -329,11 +290,12 @@ Releases (release-please, D25):
 | D39 | No upper bound: `startVersion` is the latest stable version when a tool is added, so every newer version (majors included) is published; older versions a CI pins today go in `extraVersions` and get no new patches. First publish for `camunda/camunda` `ci.yml`: 23 versions instead of 67. | `startVersion` at the version a CI uses (publishes every major since, e.g. Java 22–27); per-line ranges keeping older lines patched | Minimal first publish, new majors without edits; a CI that needs patches of an older line adds its versions or a range. | superseded by D41 |
 | D40 | Publish defaults with per-line overrides: `publish.lines` keyed by major or minor, each with `startVersion`, `allowedVersions`, `minAge`, `frozen` and an optional `reason`; versions in no line follow the defaults (new majors). Lines replace `extraVersions` for older versions a CI uses, so they keep getting patches. First publish for `camunda/camunda` `ci.yml`: 26 versions. | `series`, `overrides`, `versionOverrides`, `majors`/`minors` maps; a list with match ranges; one file per line | Short domain term (Node.js and Java "release lines"); a line reads as "keep this one maintained"; `reason` documents why, since JSON has no comments. | superseded by D41 |
 | D41 | Version lines only: `publish.lines` keyed by a major, a minor or `"*"` (versions in no other line, from its `from` on); a line has `from`, `versions` (older pins), `ignoredVersions`, `revisions`, `retired` (or `"all"`), `minAge` and `reason`; lines never overlap; stopping a line = removing its `from`. Replaces the top-level `startVersion`, `allowedVersions`, `extraVersions`, `ignoredVersions`, `revisions`, `retired` and `frozen`; fix PRs start from an empty commit. | Defaults plus per-line overrides with a `frozen` flag (D40); `*` with longest-match precedence; `extraVersions` at the top level | One concept covers every case; the file alone tells which rule applies to each version; everything about a version sits under its line. | decided |
-| D42 | Root action for plain tools (`camunda/infra-tools@…`) and `cache` for tools with a `setup-*` action (`camunda/infra-tools/cache@…`); no dot folders: `build/` (Bake and Dockerfiles), `scripts/` (Node.js scripts and the action implementation `scripts/action/setup.sh`), `published/` (bot-written record of published versions). | `tool-cache` and `setup` subfolders (D37); `.build/`, `.action/`, `.catalog/`; `catalog/`, `released/`, `versions/` | Plain tools are the common case and get the shortest `uses:`; `cache` says what it fills; each folder says what it holds; `published/` matches the publish step. | decided |
-| D43 | One JSON output `versions` on both actions (`fromJSON(steps.<id>.outputs.versions).java`), `{}` when nothing is installed. | One declared output per tool; both | Composite actions only expose declared outputs, so per-tool outputs need an `action.yml` edit for every new tool; an unknown output and an unknown JSON key are both empty, so per-tool outputs catch no more typos; adding a tool stays a `tools/<tool>/` folder. | decided |
-| D44 | Runner-level mirror: `INFRA_TOOLS_MIRROR` in the runner environment points the action to a copy of the registry (Artifact Registry for GKE runners, same digests), with Workload Identity credentials and fallback to ghcr.io. | Artifact Registry remote repository in front of ghcr.io (needs a PAT, as the package cannot be public); `index` input per workflow | No workflow change; no long-lived credential; same-region pulls for self-hosted runners; ghcr.io stays the source of truth. | proposed |
+| D42 | Root action for plain tools (`camunda/infra-tools@…`) and `cache` for tools with a `setup-*` action (`camunda/infra-tools/cache@…`); no dot folders: `build/` (Bake and Dockerfiles), `scripts/` (Node.js scripts and the action implementation `scripts/action/setup.sh`), `published/` (bot-written record of published versions). | `tool-cache` and `setup` subfolders (D37); `.build/`, `.action/`, `.catalog/`; `catalog/`, `released/`, `versions/` | Plain tools are the common case and get the shortest `uses:`; `cache` says what it fills; each folder says what it holds; `published/` matches the publish step. | superseded by D47 (folder layout kept) |
+| D43 | One JSON output `versions` on the action (`fromJSON(steps.<id>.outputs.versions).java`), `{}` when nothing is installed. | One declared output per tool; both | Composite actions only expose declared outputs, so per-tool outputs need an `action.yml` edit for every new tool; an unknown output and an unknown JSON key are both empty, so per-tool outputs catch no more typos; adding a tool stays a `tools/<tool>/` folder. | decided |
+| D44 | Runner-level mirror: `INFRA_TOOLS_MIRROR` in the runner environment points the action to a copy of the registry (Artifact Registry for GKE runners, same digests), with Workload Identity credentials and fallback to ghcr.io. | Artifact Registry remote repository in front of ghcr.io (needs a PAT, as the package cannot be public); `index` input per workflow | No workflow change; no long-lived credential; same-region pulls for self-hosted runners; ghcr.io stays the source of truth. | decided (ADR 0007); how mirrors are filled: Q16 |
 | D45 | Bootstrap with the latest version of each line: `from` set to the latest patch (go `1.25`, node `24` and `26`, helm), the older Java 21.0.12 build ignored; pins in `versions` kept. First release: 20 versions (4 published during the PoC, 16 built from `main`). | Every version from the original `from` (27 versions) | Nothing consumes the older patches yet; halves the first build; a CI pinned to an older patch keeps its usual download. | decided |
-| D46 | apt packages over OCI: curated packages per Ubuntu release (`apt/<suite>.json`) plus the dependencies a plain image lacks, built into one apt repository (no Recommends, `Release` generated inside `dists/<suite>`), tested offline, pushed as one OCI artifact in the apt-transport-oci layout (one layer per file) and referenced from the `X.Y.Z-tools` index; the actions add it as a pinned, `trusted=yes` apt source (priority 600, Ubuntu mirrors as fallback) and install apt-transport-oci from the release (static build of the upstream release). Built from the live archive; the resolved versions are recorded in `published/apt/<suite>.json`. | Unpacking packages into the tool cache; a local repository per job; an Artifact Registry apt proxy; Ubuntu snapshots | Real apt installs (scripts, dpkg database) with the same registry, mirror and fallback as tools; plain `apt-get install` for users; digest pin instead of GPG; snapshot builds left for later (not verified). | decided |
+| D46 | apt packages over OCI: curated packages per Ubuntu release (`apt/<suite>.json`) plus the dependencies a plain image lacks, built into one apt repository (no Recommends, `Release` generated inside `dists/<suite>`), tested offline, pushed as one OCI artifact in the apt-transport-oci layout (one layer per file) and referenced from the `X.Y.Z-tools` index; the action adds it as a pinned, `trusted=yes` apt source (priority 600, Ubuntu mirrors as fallback) and install apt-transport-oci from the release (static build of the upstream release). Built from the live archive; the resolved versions are recorded in `published/apt/<suite>.json` (ADR 0008). | Unpacking packages into the tool cache; a local repository per job; an Artifact Registry apt proxy; Ubuntu snapshots | Real apt installs (scripts, dpkg database) with the same registry, mirror and fallback as tools; plain `apt-get install` for users; digest pin instead of GPG; snapshot builds left for later (not verified). | decided |
+| D47 | One action `camunda/infra-tools@…` with two selector inputs: `tools` (plain tools, ready to use) and `tool-cache` (tool-cache tools, pre-filled for their `setup-*` action); a tool in the wrong input fails with a message naming the right one (ADR 0006). | Two actions: root and `cache` (D42); one input with a prefix (`cache:java@21`); one input, kind taken from the tool definition | One pin, one step and one index lookup per job; the separate input keeps the cache-only behaviour visible in the workflow (a job listing `java@21` without `setup-java` would otherwise silently run the Java already on `PATH`). | decided |
 
 ## 8. Open questions
 
@@ -345,8 +307,8 @@ Releases (release-please, D25):
 | Q4 | `./mvnw` only looks in `~/.m2/wrapper/dists/<name>/<hash>`, not in the tool cache: link Maven there from the action, or drop Maven. | Maven gain | resolved (D32) |
 | Q5 | The Python build only runs from `/opt/hostedtoolcache` (its build prefix); self-hosted runners use `/home/runner/_work/_tool`. | Python on self-hosted | open |
 | Q6 | gcloud callers use `version: latest`, which bypasses the tool cache; `gcs-build-cache-auth` can pin it, `submit-test-status` is out of scope (D14). | gcloud gain | open |
-| Q7 | Connection resets were seen when pulling GHCR layers from GKE; is a regional mirror needed for self-hosted runners? | Self-hosted reliability | open |
-| Q8 | Retention: how many versions per tool stay in the index; how long line images and tool releases are kept. | No | open |
+| Q7 | Connection resets were seen when pulling GHCR layers from GKE; is a regional mirror needed for self-hosted runners? | Self-hosted reliability | resolved (ADR 0007: a mirror per cloud) |
+| Q8 | Retention: how many versions per tool stay in the index; how long tool images and tool releases are kept. | No | open |
 | Q9 | Move the toolset and the action to a dedicated repository? | No | resolved (D26) |
 | Q10 | Version the action and the toolset together or independently? | No | resolved (D27) |
 | Q11 | The reconciler commits records to `main`: GitHub App ruleset bypass, or an auto-merged record PR? | Releases | open |
@@ -354,44 +316,55 @@ Releases (release-please, D25):
 | Q13 | Repository creation and ownership of `camunda/infra-tools` (org admin, CODEOWNERS, Vault/App credentials). | Migration | resolved (repository created, `infrastructure` admin, CODEOWNERS); App credentials in Q15 |
 | Q14 | Switch `camunda/infra-tools` and its package to public before `camunda/camunda` fork PRs rely on it. | Fork PRs | open |
 | Q15 | Workflows (`reconcile.yml`, `pr.yml`, `release.yml`, `release-merge.yml`) and the GitHub App credentials for record commits, fix PRs and releases. | First publish | open |
+| Q16 | How are mirrors filled: pull-through caching (needs a stored `ghcr.io` credential while the package is internal) or prefilling at release time (the release then depends on reaching every mirror)? Depends on Q14. | Self-hosted mirrors | open |
 
-## 9. PoC plan and evidence
+## 9. PoC evidence
 
 ### Work items
 
 | Repository | Branch / PR | Content | Status |
 | --- | --- | --- | --- |
 | `camunda/infra-actions-runner` | `1138-toolset`, [#199](https://github.com/camunda/infra-actions-runner/pull/199) | First version; kept as a draft for reference. | superseded |
-| `camunda/infra-tools` | `1138-toolset`, [#1](https://github.com/camunda/infra-tools/pull/1) | Tools, build scripts, actions, Renovate preset, release-please config. Workflows not included (Q15). | in progress |
-| `camunda/camunda` | PR | Call the action in `setup-build` and `build-frontend`; measure. | to do |
+| `camunda/infra-tools` | `poc` (from `1138-toolset`, [#1](https://github.com/camunda/infra-tools/pull/1)) | Tools, build scripts, actions, Renovate preset, release-please config. Workflows not included (Q15). | done |
+| `camunda/camunda` | [#66432](https://github.com/camunda/camunda/pull/66432) | Call the actions in `setup-build` and `build-frontend`; measure. | done |
 
-Measured jobs: `build-distball` and `async-replication-integration-tests` (merge queue critical path, self-hosted),
-`build-platform-frontend` or `webapp-client` (GitHub-hosted, Node 26).
+Measured jobs: `build-distball` and `async-replication-integration-tests` (merge queue critical path, self-hosted), `build-platform-frontend` or `webapp-client` (GitHub-hosted, Node 26).
 
-### Local verification (`camunda/infra-tools`, `1138-toolset`)
+### Local verification (`camunda/infra-tools`, `poc`)
 
 - Unit tests (`npm test` in `scripts`): 27 passed (versions and lines, catalog and index merge, fix PR grouping, upstream filters, tool configs and validation).
-- `plan.mjs` against real upstream data (D41 lines): 26 versions for the 15 tools, covering every version `ci.yml` uses;
-  versions newer than `minAge` held back.
-- `build.mjs`: all 15 tools built and tested for `linux/amd64` and `linux/arm64`, including the new latest versions (Go 1.27.2,
-  Java 27.0.0, kubectl 1.37.1, Maven 3.10.0, Node 26.12.0, uv 0.13.1) and both Java 21.0.12 builds; full rebuild of the
-  26 planned versions passed. Tests capture command output before matching it (`cmd | grep -q` fails under `pipefail` when the
-  command gets SIGPIPE, seen with kubectl 1.37).
-- Actions with tools already in the tool cache, no network: `cache` with `java@21` (`versions` output set, no `PATH` entry);
-  root action with `maven@3` (`PATH` set, `./mvnw` of `camunda/camunda` running the linked Maven 3.9.16); exact build selector
-  resolved; each action rejecting the other kind of tool.
+- `plan.mjs` against real upstream data (D41 lines): 26 versions for the 15 tools, covering every version `ci.yml` uses; versions newer than `minAge` held back.
+- `build.mjs`: all 15 tools built and tested for `linux/amd64` and `linux/arm64`, including the new latest versions (Go 1.27.2, Java 27.0.0, kubectl 1.37.1, Maven 3.10.0, Node 26.12.0, uv 0.13.1) and both Java 21.0.12 builds; full rebuild of the 26 planned versions passed. Tests capture command output before matching it (`cmd | grep -q` fails under `pipefail` when the command gets SIGPIPE, seen with kubectl 1.37).
+- Actions with tools already in the tool cache, no network: `cache` with `java@21` (`versions` output set, no `PATH` entry); root action with `maven@3` (`PATH` set, `./mvnw` of `camunda/camunda` running the linked Maven 3.9.16); exact build selector resolved; each action rejecting the other kind of tool.
 - Renovate configs validated (`renovate-config-validator --strict`); selector regexes and the catalog transform tested.
-- Pushing to ghcr.io, `index.mjs`, `record.mjs`, `publish.mjs` and extraction from ghcr.io verified with Java 21, Node 26, Maven 3.9
-  and gcloud (test index `test-1138-tools`). Not verified: `fix-pr.mjs` against GitHub.
+- Pushing to ghcr.io, `index.mjs`, `record.mjs`, `publish.mjs` and extraction from ghcr.io verified with Java 21, Node 26, Maven 3.9 and gcloud (test index `test-1138-tools`). Not verified: `fix-pr.mjs` against GitHub.
+
+### PoC results (`camunda/camunda` [#66432](https://github.com/camunda/camunda/pull/66432))
+
+- Reliability: full `ci.yml` [run](https://github.com/camunda/camunda/actions/runs/39295176060), 137 jobs, no failure of the action. Java came from Artifact Registry 62×, Maven 62×, gcloud 45×, Node from GitHub Packages 19× (GitHub-hosted); tools were already cached 11×. The 2 fallbacks to GitHub Packages were on an AWS runner, with no mirror there yet.
+- Download time: against the 5 latest green `main` runs on the same base commit, setup steps are 1.4 min shorter over 66 self-hosted jobs and about 0.9 min shorter over 60 GitHub-hosted jobs. The average gain is small by design: the target is the slow and failing third-party downloads. Fixed cost of the action (index lookup): about 0.5–1 s.
+- Artifact Registry next to the GKE runners is the fastest and most stable source: Java (199 MB) in 2.6–5.7 s (median 2.7 s, 73 MB/s), gcloud (90 MB) in 2.7–2.9 s.
+
+Setup time per tool ([run](https://github.com/camunda/camunda/actions/runs/39410550547): action step plus the usual setup step, median of 3 runs, max in brackets):
+
+| Tool | Runner | Baseline (source) | From GitHub Packages | From Artifact Registry |
+| --- | --- | --- | --- | --- |
+| node 26 | GitHub-hosted x64 | 6.1 s (GitHub node-versions) | 3.9 s | – |
+| node 26 | GitHub-hosted arm64 | 4.5 s | 2.7 s | – |
+| node 26 | Self-hosted (GKE) | 8.6 s (9.0) | 4.2 s (12.6) | 2.6 s (3.2) |
+| java 21 | GitHub-hosted x64 | 0.9 s (already in the runner image) | 0.9 s | – |
+| java 21 | GitHub-hosted arm64 | 4.6 s (Adoptium on GitHub) | 5.5 s | – |
+| java 21 | Self-hosted (GKE) | 7.2 s | 20.8 s (21.2) | 4.5 s (5.8) |
+| gcloud | GitHub-hosted x64 | 7.5 s (10.1) (dl.google.com, always downloaded) | 6.8 s (7.3) | – |
+| gcloud | GitHub-hosted arm64 | 4.5 s (29.7) | 5.3 s (5.7) | – |
+| gcloud | Self-hosted (GKE) | 8.3 s | 12.9 s (17.5) | 8.4 s (9.4) |
+| maven 3.9 | Self-hosted (GKE) | 1.7 s (Maven Central) | 2.5 s | 1.2 s (1.4) |
 
 ### Baseline (`camunda/camunda`, October 2026)
 
-- Merging: the only required check is `check-results` (`ci.yml`), the only workflow running in the merge queue.
-  Merge queue CI wall clock: p50 24.2 min, p90 28.1 min (40 runs).
-- Critical path: `build-distball` (p50 4.6 min, p90 5.4 min) → slowest dependent (`async-replication-integration-tests` p90 17.7 min,
-  `physical-tenant-acceptance-tests` 16.2 min, `integration-tests` 15.6 min). Source: `prod_ci_analytics.build_status_v2`, 14 days.
-- Tool setup per job (46 job logs of CI run
-  [38428572169](https://github.com/camunda/camunda/actions/runs/38428572169)):
+- Merging: the only required check is `check-results` (`ci.yml`), the only workflow running in the merge queue. Merge queue CI wall clock: p50 24.2 min, p90 28.1 min (40 runs).
+- Critical path: `build-distball` (p50 4.6 min, p90 5.4 min) → slowest dependent (`async-replication-integration-tests` p90 17.7 min, `physical-tenant-acceptance-tests` 16.2 min, `integration-tests` 15.6 min). Source: `prod_ci_analytics.build_status_v2`, 14 days.
+- Tool setup per job (46 job logs of CI run [38428572169](https://github.com/camunda/camunda/actions/runs/38428572169)):
 
 | Tool | GitHub-hosted | Self-hosted |
 | --- | --- | --- |
