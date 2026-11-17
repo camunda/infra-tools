@@ -1,7 +1,7 @@
 // Renovate preset for repositories using camunda/infra-tools:
 //   extends: ["github>camunda/infra-tools//.github/renovate-preset.json5"]
-// The action pins (`uses: camunda/infra-tools[/cache]@<sha> # X.Y.Z`) are tracked by Renovate's github-actions manager.
-// This preset updates the `tools: |` selectors against the tool versions of the pinned release (published/ at its tag),
+// The action pins (`uses: camunda/infra-tools@<sha> # X.Y.Z`) are tracked by Renovate's github-actions manager.
+// This preset updates the `tools: |` and `tool-cache: |` selectors against the tool versions of the pinned release (published/ at its tag),
 // keeping each selector's precision (node@26, kubectl@1.35, java@21.0.12). Exact build pins (java@21.0.12+8) are left alone.
 {
   $schema: "https://docs.renovatebot.com/renovate-schema.json",
@@ -11,8 +11,8 @@
       managerFilePatterns: ["/(^|/)\\.github/(workflows|actions)/.+\\.ya?ml$/", "/(^|/)action\\.ya?ml$/"],
       matchStringsStrategy: "recursive",
       matchStrings: [
-        "camunda/infra-tools(?:/cache)?@[a-f0-9]{40}\\s+#\\s*v?(?<releaseVersion>\\d+\\.\\d+\\.\\d+)\\b.*\\n(?:[ \\t]+[\\w-]+:.*\\n)*?[ \\t]+tools:\\s*\\|\\n(?:[ \\t]+[a-z][a-z0-9-]*(?:@\\S+)?[ \\t]*\\n)+",
-        "tools:\\s*\\|\\n(?:[ \\t]+[a-z][a-z0-9-]*(?:@\\S+)?[ \\t]*\\n)+",
+        "camunda/infra-tools@[a-f0-9]{40}\\s+#\\s*v?(?<releaseVersion>\\d+\\.\\d+\\.\\d+)\\b.*\\n(?:[ \\t]+(?:[\\w-]+:.*|[a-z][a-z0-9-]*(?:@\\S+)?[ \\t]*)\\n)+",
+        "[ \\t](?:tools|tool-cache):\\s*\\|\\n(?:[ \\t]+[a-z][a-z0-9-]*(?:@\\S+)?[ \\t]*\\n)+",
         "(?<tool>[a-z][a-z0-9-]*)@(?<currentValue>\\d+(?:\\.\\d+){0,2})[ \\t]*\\n",
       ],
       depNameTemplate: "infra-tools/{{{tool}}}",

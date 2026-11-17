@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# infra-tools setup (root) and cache actions (KIND). Requires bash, curl, jq, tar, sha256sum; yq for MODE=validate.
+# infra-tools action: TOOLS (plain tools) and TOOL_CACHE (tool-cache tools). Requires bash, curl, jq, tar, sha256sum; yq for MODE=validate.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -12,9 +12,7 @@ fi
 accept_index="application/vnd.oci.image.index.v1+json"
 accept_manifest="application/vnd.oci.image.manifest.v1+json"
 annotation="io.camunda.infra-tools"
-kind="${KIND:?}"
 prefix="infra-tools"
-[[ "${kind}" == cache ]] && prefix="infra-tools/cache"
 tmp="${RUNNER_TEMP:-/tmp}"
 auth=()
 now_ms() { echo $(($(date +%s%N) / 1000000)); }
@@ -36,7 +34,7 @@ mkdir -p "${tc}"
 # Tool layout from tools/<tool>/tool.json at the pinned commit: no network needed to find tools already present.
 config() {
   local file="${here}/tools/$1/tool.json"
-  [[ -f "${file}" ]] || { echo "::error::${prefix}: unknown tool '$1'"; return 1; }
+  [[ -f "${file}" ]] || { echo "::error::${prefix}: unknown tool '$1'" >&2; return 1; }
   jq -c --arg t "$1" --arg a "${arch}" '.install // {} | {
     folder: (.cacheFolder // $t),
     arch: ((.archFolders // {amd64: "x64", arm64: "arm64"})[$a]),
@@ -44,16 +42,16 @@ config() {
   }' "${file}"
 }
 
-# Plain tools (addToPath) are ready to use with setup; the others need their setup-* action, after cache.
-kind_of() { [[ -n "$(jq -r .path <<<"$1")" ]] && echo setup || echo cache; }
+# Input a tool belongs to: plain tools (addToPath) are ready to use, the others need their setup-* action.
+input_of() { [[ -n "$(jq -r .path <<<"$1")" ]] && echo tools || echo tool-cache; }
 
-check_kind() {
-  local tool="$1" layout="$2" where="${3:-}"
-  [[ "$(kind_of "${layout}")" == "${4:-${kind}}" ]] && return 0
-  if [[ "${4:-${kind}}" == cache ]]; then
-    echo "::error${where}::infra-tools/cache: ${tool} is ready to use: select it in camunda/infra-tools"
+check_input() {
+  local tool="$1" layout="$2" input="$3" where="${4:-}"
+  [[ "$(input_of "${layout}")" == "${input}" ]] && return 0
+  if [[ "${input}" == tools ]]; then
+    echo "::error${where}::${prefix}: ${tool} is a tool-cache tool: list it under tool-cache, then run its setup-* action"
   else
-    echo "::error${where}::infra-tools: ${tool} needs its setup-* action: select it in camunda/infra-tools/cache, then run setup-${tool}"
+    echo "::error${where}::${prefix}: ${tool} is a plain tool: list it under tools"
   fi
   return 1
 }
@@ -134,13 +132,13 @@ resolve() {
     | sort_by(.annotations[$p + ".folder-version"] | [scan("[0-9]+") | tonumber]) | last // empty' <<<"$1"
 }
 
-# "<file> <kind> <selector>" for every infra-tools step of the repository's workflows and local actions.
+# "<file> <input> <selector>" for every infra-tools step of the repository's workflows and local actions.
 selectors() {
   local file
   for file in .github/workflows/*.y*ml .github/actions/*/action.y*ml; do
     [[ -f "${file}" ]] || continue
-    yq -r '.. | select(type == "!!map" and has("uses") and (.uses | test("camunda/infra-tools(/cache)?@")))
-      | (if (.uses | test("infra-tools/cache@")) then "cache" else "setup" end) + " " + ((.with.tools // "") | sub("\s+"; " "))' "${file}" \
+    yq -r '.. | select(type == "!!map" and has("uses") and (.uses | test("camunda/infra-tools@")))
+      | (("tools " + ((.with.tools // "") | sub("\s+"; " "))), ("tool-cache " + ((.with["tool-cache"] // "") | sub("\s+"; " "))))' "${file}" \
       | awk -v f="${file}" 'NF > 1 { for (i = 2; i <= NF; i++) print f " " $1 " " $i }'
   done
 }
@@ -149,10 +147,10 @@ if [[ "${MODE:-extract}" == validate ]]; then
   failed=0
   for platform in amd64 arm64; do
     connect "${platform}"
-    while read -r file step selector; do
+    while read -r file input selector; do
       want=""
       [[ "${selector}" == *@* ]] && want="${selector#*@}"
-      if [[ "${platform}" == amd64 ]] && ! check_kind "${selector%%@*}" "$(config "${selector%%@*}")" " file=${file}" "${step}"; then
+      if [[ "${platform}" == amd64 ]] && ! { layout="$(config "${selector%%@*}")" && check_input "${selector%%@*}" "${layout}" "${input}" " file=${file}"; }; then
         failed=1
       elif [[ -z "$(resolve "${platform_layers}" "${selector%%@*}" "${want}")" ]]; then
         echo "::error file=${file}::${selector} is not in infra-tools ${version} (linux/${platform})"
@@ -217,13 +215,15 @@ install_layer() {
 declare -A folder arch_folder add_path resolved selected state size
 order=()
 missing=()
-for selector in ${TOOLS:-}; do
+# shellcheck disable=SC2086 # one selector per word
+while read -r input selector; do
+  [[ -n "${selector}" ]] || continue
   tool="${selector%%@*}" want=""
   selected[${tool}]="${selector}"
   order+=("${tool}")
   [[ "${selector}" == *@* ]] && want="${selector#*@}"
   layout="$(config "${tool}")"
-  check_kind "${tool}" "${layout}"
+  check_input "${tool}" "${layout}" "${input}"
   folder[${tool}]="$(jq -r .folder <<<"${layout}")"
   arch_folder[${tool}]="$(jq -r .arch <<<"${layout}")"
   add_path[${tool}]="$(jq -r .path <<<"${layout}")"
@@ -238,7 +238,7 @@ for selector in ${TOOLS:-}; do
   else
     missing+=("${tool}@${want}")
   fi
-done
+done < <(printf 'tools %s\n' ${TOOLS:-}; printf 'tool-cache %s\n' ${TOOL_CACHE:-})
 
 if ((${#missing[@]})); then
   connect "${arch}"
@@ -318,7 +318,7 @@ apt_source() {
   echo "apt: infra-tools source for Ubuntu ${codename} (${apt_digest:7:12}) from ${registry} in $(printf '%d.%d' $((($(now_ms) - t0) / 1000)) $((($(now_ms) - t0) % 1000 / 100))) s, apt-transport-oci ${ver}"
 }
 
-if [[ "${ENABLE_APT_SOURCE:-true}" == true ]] && ! apt_source; then
+if [[ "${ENABLE_APT_SOURCE:-false}" == true ]] && ! apt_source; then
   sudo rm -f /etc/apt/sources.list.d/infra-tools.list /etc/apt/preferences.d/infra-tools
   echo "::warning::${prefix}: apt source not configured, apt uses the Ubuntu mirrors"
 fi

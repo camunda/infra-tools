@@ -99,7 +99,7 @@ infra-tools/
     ├── renovate.json5
     ├── renovate-preset.json5     # for consumers
     ├── config/                   # release-please-config.json, .release-please-manifest.json
-    └── workflows/                # reconcile.yml, pr.yml, release.yml, release-merge.yml (Q15)
+    └── workflows/                # reconcile.yml, ci.yml, release.yml, release-merge.yml (Q15)
 ```
 
 ### 5.2 Tool definition and build
@@ -323,7 +323,7 @@ Releases (release-please, D25):
 | Q12 | With several builds of one version in the tool cache, does `setup-java` pick the highest? Otherwise pass the action's resolved version. | No | resolved (handled at Java's tool onboarding, D51; usage passes the resolved version, D53) |
 | Q13 | Repository creation and ownership of `camunda/infra-tools` (org admin, CODEOWNERS, Vault/App credentials). | Migration | resolved (repository created, `infrastructure` admin, CODEOWNERS); App credentials in Q15 |
 | Q14 | Switch `camunda/infra-tools` and its package to public before `camunda/camunda` fork PRs rely on it. | Fork PRs | resolved (D48: the package stays internal; fork PR access tested, R18) |
-| Q15 | Workflows (`reconcile.yml`, `pr.yml`, `release.yml`, `release-merge.yml`) and the GitHub App credentials for record commits, fix PRs and releases. | First publish | resolved (D49: Infra - Misc App; the workflows are phase 1 work) |
+| Q15 | Workflows (`reconcile.yml`, `ci.yml`, `release.yml`, `release-merge.yml`) and the GitHub App credentials for record commits, fix PRs and releases. | First publish | resolved (D49: Infra - Misc App; the workflows are phase 1 work) |
 | Q16 | How are mirrors filled: pull-through caching (needs a stored `ghcr.io` credential while the package is internal) or prefilling at release time (the release then depends on reaching every mirror)? Depends on Q14. | Self-hosted mirrors | resolved (D48: pull-through with the `infra-connect` PAT) |
 
 ## 9. PoC evidence

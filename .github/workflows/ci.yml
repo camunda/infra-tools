@@ -1,0 +1,189 @@
+---
+name: CI
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  action:
+    # The action as consumers call it, from the checked-out commit, against the PoC test index (gcloud, java, maven, node).
+    name: Action (${{ matrix.runner }})
+    permissions:
+      contents: read
+      packages: read # pulls the test index and tool layers from ghcr.io
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    env:
+      TEST_INDEX: ghcr.io/camunda/infra-tools:test-1138-tools
+      # Unreachable registry: a step reading it fails on any network call.
+      OFFLINE_INDEX: 127.0.0.1:9/infra-tools:offline
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Nothing selected
+      id: none
+      uses: ./
+      with:
+        index: ${{ env.OFFLINE_INDEX }}
+    - name: Check the versions output is {}
+      env:
+        VERSIONS: ${{ steps.none.outputs.versions }}
+      run: '[[ "${VERSIONS}" == "{}" ]]'
+
+    - name: Empty the tool cache of the test tools
+      run: rm -rf "${RUNNER_TOOL_CACHE}"/{maven,node}
+    - name: Fresh install of a plain and a tool-cache tool
+      id: fresh
+      uses: ./
+      with:
+        index: ${{ env.TEST_INDEX }}
+        summary: 'true'
+        tools: |
+          maven@3.9
+        tool-cache: |
+          node@26
+    - name: Check maven is on PATH and node only in the tool cache
+      env:
+        VERSIONS: ${{ steps.fresh.outputs.versions }}
+      run: |
+        [[ "${VERSIONS}" == '{"maven":"3.9.16","node":"26.12.0"}' ]]
+        [[ "$(command -v mvn)" == "${RUNNER_TOOL_CACHE}/maven/3.9.16/${RUNNER_ARCH,,}/bin/mvn" ]]
+        [[ -f "${RUNNER_TOOL_CACHE}/node/26.12.0/${RUNNER_ARCH,,}.complete" ]]
+        [[ "$(command -v node)" != "${RUNNER_TOOL_CACHE}/node/"* ]]
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ fromJSON(steps.fresh.outputs.versions).node }}
+    - name: Check setup-node took node from the tool cache
+      run: '[[ "$(command -v node)" == "${RUNNER_TOOL_CACHE}/node/26.12.0/${RUNNER_ARCH,,}/bin/node" ]]'
+
+    - name: Every tool present
+      id: present
+      uses: ./
+      with:
+        index: ${{ env.OFFLINE_INDEX }}
+        tools: |
+          maven@3
+        tool-cache: |
+          node@26.12
+    - name: Check present tools resolve without network
+      env:
+        VERSIONS: ${{ steps.present.outputs.versions }}
+      run: '[[ "${VERSIONS}" == "{\"maven\":\"3.9.16\",\"node\":\"26.12.0\"}" ]]'
+
+    - name: Exact build pin
+      id: exact
+      uses: ./
+      with:
+        index: ${{ env.TEST_INDEX }}
+        tool-cache: |
+          java@21.0.12+101.0.LTS
+    - name: Exact build pin, with -, present
+      id: exact-present
+      uses: ./
+      with:
+        index: ${{ env.OFFLINE_INDEX }}
+        tool-cache: |
+          java@21.0.12-101.0.LTS
+    - name: Check the exact build is returned
+      env:
+        EXACT: ${{ steps.exact.outputs.versions }}
+        EXACT_PRESENT: ${{ steps.exact-present.outputs.versions }}
+      run: |
+        [[ "${EXACT}" == '{"java":"21.0.12+101.0.LTS"}' ]]
+        [[ "${EXACT_PRESENT}" == "${EXACT}" ]]
+
+    - name: Wrong input
+      id: wrong-input
+      continue-on-error: true
+      uses: ./
+      with:
+        index: ${{ env.OFFLINE_INDEX }}
+        tools: |
+          node@26
+    - name: Check rejected selectors fail with a message naming the cause
+      env:
+        OUTCOME: ${{ steps.wrong-input.outcome }}
+        TOKEN: ${{ github.token }}
+      run: |
+        [[ "${OUTCOME}" == failure ]]
+        # <message> <VAR=value>...: the action script must fail and print the message.
+        expect_failure() {
+          local out
+          if out="$(env GITHUB_OUTPUT=/dev/null GITHUB_PATH=/dev/null "${@:2}" "${GITHUB_WORKSPACE}/scripts/action/setup.sh" 2>&1)"; then
+            echo "::error::succeeded: ${*:2}"
+            return 1
+          fi
+          grep -qF "$1" <<<"${out}" || { echo "${out}"; echo "::error::expected: $1"; return 1; }
+        }
+        expect_failure 'node is a tool-cache tool: list it under tool-cache' INDEX="${OFFLINE_INDEX}" TOOLS=node@26
+        expect_failure 'maven is a plain tool: list it under tools' INDEX="${OFFLINE_INDEX}" TOOL_CACHE=maven@3
+        expect_failure 'node@99 is not in infra-tools' INDEX="${TEST_INDEX}" TOOL_CACHE=node@99
+        expect_failure "unknown tool 'nope'" INDEX="${OFFLINE_INDEX}" TOOLS=nope@1
+
+        mkdir -p "${RUNNER_TEMP}/consumer/.github/workflows"
+        cat >"${RUNNER_TEMP}/consumer/.github/workflows/consumer.yml" <<'EOF'
+        on: push
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+            - uses: camunda/infra-tools@0000000000000000000000000000000000000000
+              with:
+                tools: |
+                  java@21
+                  nope@1
+                tool-cache: |
+                  node@99
+        EOF
+        cd "${RUNNER_TEMP}/consumer"
+        expect_failure 'file=.github/workflows/consumer.yml::infra-tools: java is a tool-cache tool: list it under tool-cache' INDEX="${TEST_INDEX}" MODE=validate
+        expect_failure 'node@99 is not in infra-tools' INDEX="${TEST_INDEX}" MODE=validate
+        expect_failure "unknown tool 'nope'" INDEX="${TEST_INDEX}" MODE=validate
+
+    - name: Write a consumer workflow with valid selectors
+      run: |
+        cat >.github/workflows/consumer.yml <<'EOF'
+        on: push
+        jobs:
+          build:
+            runs-on: ubuntu-latest
+            steps:
+            - id: tools
+              uses: camunda/infra-tools@0000000000000000000000000000000000000000
+              with:
+                tools: |
+                  maven@3.9
+                tool-cache: |
+                  java@21
+                  node@26.12.0
+        EOF
+    - name: Validate mode
+      uses: ./
+      with:
+        index: ${{ env.TEST_INDEX }}
+        mode: validate
+
+  check:
+    # One stable status for the ruleset, whatever the matrix.
+    name: Check CI
+    if: always()
+    permissions: {}
+    needs:
+    - action
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Check results
+      env:
+        FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+      run: |
+        if [[ "${FAILED}" == true ]]; then
+          echo "::error::Some CI jobs failed or were cancelled."
+          exit 1
+        fi

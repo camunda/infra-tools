@@ -1,11 +1,15 @@
 ---
 name: infra-tools setup
-description: Installs the selected tools into the runner tool cache and adds them to PATH, ready to use.
+description: Installs the selected tools into the runner tool cache; plain tools are added to PATH, tool-cache tools are found by their setup-* action.
 
 inputs:
   tools:
     description: >-
-      One selector per line, `<tool>[@<version prefix>]`, e.g. `jq@1`, `kubectl@1.35`. Tools: actionlint, codeowners-cli, conftest, docker-compose, helm, jq, kubectl, maven, yq.
+      Plain tools, ready to use (added to PATH). One selector per line, `<tool>[@<version prefix>]`, e.g. `jq@1`, `kubectl@1.35`. Tools: actionlint, codeowners-cli, conftest, docker-compose, helm, jq, kubectl, maven, yq.
+    default: ''
+  tool-cache:
+    description: >-
+      Tool-cache tools, placed in the tool cache for their setup-* action. One selector per line, `<tool>[@<version prefix>]`, e.g. `java@21`, `node@26`; `java@21.0.12+8` pins an exact build. Tools: gcloud, go, java, node, python, uv.
     default: ''
   mode:
     description: '`extract` installs the tools; `validate` checks the selectors of every workflow in the repository against this release.'
@@ -18,7 +22,7 @@ inputs:
     default: ''
   enable-apt-source:
     description: '`true` adds the infra-tools apt source (Ubuntu runners), so `apt-get install` takes curated packages from the registry; the Ubuntu mirrors stay as fallback.'
-    default: 'true'
+    default: 'false'
   summary:
     description: '`true` adds a table of the selected tools (version, result, tool cache path) to the job summary.'
     default: 'false'
@@ -26,7 +30,7 @@ inputs:
 outputs:
   versions:
     description: >-
-      Resolved version per selected tool, as JSON: `{"jq":"1.8.2","maven":"3.9.16"}`; plain tools are on PATH, so it is informational.
+      Resolved version per selected tool, as JSON: `{"java":"21.0.12+101.0.LTS","maven":"3.9.16"}`, `{}` when nothing is installed; for tool-cache tools, in the form setup-* actions expect: `fromJSON(steps.<id>.outputs.versions).java`.
     value: ${{ steps.run.outputs.versions }}
 
 runs:
@@ -35,8 +39,8 @@ runs:
   - id: run
     shell: bash
     env:
-      KIND: setup
       TOOLS: ${{ inputs.tools }}
+      TOOL_CACHE: ${{ inputs.tool-cache }}
       MODE: ${{ inputs.mode }}
       TOKEN: ${{ inputs.token }}
       INDEX: ${{ inputs.index }}
