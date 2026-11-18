@@ -42,7 +42,7 @@ export function parseToolDefinition(name, json) {
   if (typeof tool.publish.minAge !== 'string') fail('publish.minAge is a duration string (e.g. "1 day")');
   checkDuration(fail, 'publish.minAge', tool.publish.minAge);
   if (tool.setup) {
-    if (addToPath !== null) fail('setup is for tool-cache tools; a plain tool (install.addToPath) is ready to use');
+    if (isPlainTool(tool)) fail('setup is for tool-cache tools; a plain tool (install.addToPath) is ready to use');
     if (typeof tool.setup.action !== 'string' || typeof tool.setup.versionInput !== 'string') fail('setup needs action and versionInput');
     const inputs = tool.setup.with;
     if (typeof inputs !== 'object' || inputs === null || Array.isArray(inputs) || Object.values(inputs).some((v) => typeof v !== 'string')) fail('setup.with maps inputs to strings');
@@ -52,6 +52,10 @@ export function parseToolDefinition(name, json) {
 }
 
 export const PLATFORMS = ['linux/amd64', 'linux/arm64'];
+
+// A plain tool is ready to use once installed (its install.addToPath folder is added to PATH); any other tool is a tool-cache
+// tool, configured by its setup-* action.
+export const isPlainTool = (tool) => tool.install.addToPath !== null;
 
 // Architecture of a platform: amd64 for linux/amd64.
 export const archOf = (platform) => platform.split('/')[1];

@@ -1,6 +1,6 @@
 // Tool release (spec §5.5): the GitHub release documenting one published tool image, tagged like it on the commit its layers
 // were built from, never marked latest.
-import { archFolder, PLATFORMS } from './tool-definition.mjs';
+import { archFolder, isPlainTool, PLATFORMS } from './tool-definition.mjs';
 import { folderVersion } from './versions.mjs';
 
 const MB = 1024 * 1024;
@@ -9,7 +9,7 @@ const MB = 1024 * 1024;
 // digest: its image digest; image: <registry>/<repository> it is pushed to; repository: owner/name; commit: the build commit.
 // Returns the GitHub REST API fields of the release.
 export function toolRelease({ tool, published: p, layers, digest, image, repository, commit }) {
-  const plain = tool.install.addToPath !== null;
+  const plain = isPlainTool(tool);
   const rows = PLATFORMS.map((platform) => {
     const { digest: layer, size } = layers[platform];
     return `| ${platform} | \`${tool.install.cacheFolder}/${folderVersion(p.version)}/${archFolder(tool, platform)}\` | \`${layer}\` | ${(size / MB).toFixed(1)} MB |`;
@@ -45,7 +45,7 @@ export function toolRelease({ tool, published: p, layers, digest, image, reposit
 
 // The workflow steps: the infra-tools step, then for a tool-cache tool its setup-* step with the resolved version (D53).
 function usage(tool, version) {
-  if (tool.install.addToPath !== null) return ['- uses: camunda/infra-tools@<sha> # X.Y.Z', '  with:', `    tools: ${tool.name}@${version}`];
+  if (isPlainTool(tool)) return ['- uses: camunda/infra-tools@<sha> # X.Y.Z', '  with:', `    tools: ${tool.name}@${version}`];
   const resolved = `\${{ fromJSON(steps.tools.outputs.versions).${tool.name} }}`;
   const steps = ['- id: tools', '  uses: camunda/infra-tools@<sha> # X.Y.Z', '  with:', `    tool-cache: ${tool.name}@${version}`];
   if (!tool.setup) return [...steps, `# Then the setup-* action of ${tool.name}, with its version input set to ${resolved}`];
