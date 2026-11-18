@@ -90,7 +90,7 @@ infra-tools/
 │   ├── builder.Dockerfile        # build-platform image where install.sh runs (download, install-tool)
 │   ├── tool.Dockerfile           # default tool build → FROM scratch tool image
 │   └── test.Dockerfile           # runs test.sh on the target platform
-├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index, pull-request (+ lib/, test/)
+├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index, pull-request, stuck-prs (+ lib/, test/)
 │   ├── package.json              # renovate (getPkgReleases)
 │   └── action/setup.sh           # implementation of the action
 ├── published/                    # bot-written record of published versions
@@ -99,7 +99,7 @@ infra-tools/
     ├── renovate.json5
     ├── renovate-preset.json5     # for consumers
     ├── config/                   # release-please-config.json, .release-please-manifest.json
-    └── workflows/                # reconcile.yml, ci.yml (pull request checks: tests of the scripts and the action), release.yml, release-merge.yml (Q15), publish-tool.yml (manual, until the reconciler)
+    └── workflows/                # reconcile.yml, ci.yml (pull request checks: tests of the scripts and the action), release.yml, release-merge.yml (Q15), publish-tool.yml (manual, until the reconciler), renovate-pr-maintainer.yml
 ```
 
 ### 5.2 Tool definition and build
@@ -231,6 +231,7 @@ Releases (release-please, D25):
 | --- | --- | --- |
 | Tool versions | `tools/*/tool.json` | Not Renovate: the reconciler (D21). |
 | Repository dependencies | `scripts/package.json` (renovate), actions, base images | Default Renovate config. |
+| Renovate PRs | This repository | `renovate-pr-maintainer.yml`: hourly `renovate-pr-maintainer` action (one-off rebase of stale PRs, as Renovate only rebases on conflicts); weekly digest to `#infra-alerts` of PRs dirty or awaiting rebase for 48h or more (`scripts/stuck-prs.mjs`). |
 | Action pins | Consumer workflows | Renovate's built-in github-actions manager (`@<sha> # X.Y.Z`, D30). |
 | Selectors | Consumer `tools: \|` and `tool-cache: \|` blocks | Preset `github>camunda/infra-tools//.github/renovate-preset.json5`: custom datasource reading `published/<tool>.json` at the pinned tag through the contents API (D29); npm versioning keeps each selector's precision; exact build pins are left alone. |
 
