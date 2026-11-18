@@ -38,3 +38,19 @@ test('a PR changing a tool builds its planned versions and its latest published 
   ]);
   assert.deepEqual(lookedUp, ['java-version']);
 });
+
+test('a PR changing the shared build plans every tool; a PR changing neither plans none', async () => {
+  const tools = [java({ 21: { from: '21.0.12' } }), maven({ '*': { from: '3.9.16' } })];
+  const lookup = upstreamOf({ 'java-version': ['21.0.12+8'], maven: ['3.9.16'] });
+  const tagExists = tagsIn('java-21.0.12-8-r1', 'maven-3.9.16-r1');
+  for (const file of ['build/tool.Dockerfile', 'build/test.Dockerfile', 'scripts/lib/build.mjs']) {
+    assert.deepEqual(builds(await check({ tools, changedFiles: [file], lookup, tagExists })), [
+      'java 21.0.12+8 java-21.0.12-8-r1 (latest published of major 21)',
+      'maven 3.9.16 maven-3.9.16-r1 (latest published of major 3)',
+    ], file);
+  }
+  const lookedUp = [];
+  const result = await check({ tools, changedFiles: ['README.md', 'scripts/lib/plan.mjs'], lookup: upstreamOf({}, lookedUp), tagExists });
+  assert.deepEqual(result.builds, []);
+  assert.deepEqual(lookedUp, []);
+});
