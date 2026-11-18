@@ -1,10 +1,15 @@
-// Files of this repository read by the scripts.
+// Files of this repository read by the scripts, and the GitHub API.
+import { execFileSync } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseToolDefinition } from './tool-definition.mjs';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
+
+// gh api with its arguments and input (the request body, '' for none), with gh's token (GH_TOKEN or GITHUB_TOKEN). Returns the
+// response body; an error status throws, with gh's message (e.g. "(HTTP 404)") in its stderr.
+export const ghApi = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
 
 export async function readToolDefinition(name) {
   return parseToolDefinition(name, JSON.parse(await readFile(join(ROOT, 'tools', name, 'tool.json'), 'utf8')));
