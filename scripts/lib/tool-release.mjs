@@ -5,22 +5,22 @@ import { folderVersion } from './versions.mjs';
 
 const MB = 1024 * 1024;
 
-// recorded: a recorded tool version that needs its tool release (lib/reconcile.mjs recordRun toolReleases). layers: its layer per platform (Registry.toolImageLayers);
+// recorded: a recorded tool version that needs its tool release (lib/reconcile.mjs recordRun unreleased). layers: its layer per platform (Registry.toolImageLayers);
 // digest: its image digest; image: <registry>/<repository> it is pushed to; repository: owner/name; commit: the build commit.
 // Returns the GitHub REST API fields of the release.
-export function toolRelease({ tool, recorded: p, layers, digest, image, repository, commit }) {
+export function toolRelease({ tool, recorded, layers, digest, image, repository, commit }) {
   const plain = isPlainTool(tool);
   const rows = PLATFORMS.map((platform) => {
     const { digest: layer, size } = layers[platform];
-    return `| ${platform} | \`${tool.install.cacheFolder}/${folderVersion(p.version)}/${archFolder(tool, platform)}\` | \`${layer}\` | ${(size / MB).toFixed(1)} MB |`;
+    return `| ${platform} | \`${tool.install.cacheFolder}/${folderVersion(recorded.version)}/${archFolder(tool, platform)}\` | \`${layer}\` | ${(size / MB).toFixed(1)} MB |`;
   });
   return {
-    tag_name: p.tag,
+    tag_name: recorded.tag,
     target_commitish: commit,
-    name: `${tool.name} ${p.version} (r${p.revision})`,
+    name: `${tool.name} ${recorded.version} (r${recorded.revision})`,
     make_latest: 'false',
     body: [
-      `${tool.name} ${p.version}${plain ? ', ready to use' : ' in the runner tool cache, for its setup-* action'}.${p.upstream ? ` Upstream: ${p.upstream}` : ''}`,
+      `${tool.name} ${recorded.version}${plain ? ', ready to use' : ' in the runner tool cache, for its setup-* action'}.${recorded.upstream ? ` Upstream: ${recorded.upstream}` : ''}`,
       '',
       '## Usage',
       '',
@@ -29,7 +29,7 @@ export function toolRelease({ tool, recorded: p, layers, digest, image, reposito
         : 'In jobs pinning an infra-tools release that lists it. The setup-* step takes the version the infra-tools step installed, so it finds it in the tool cache instead of downloading it:',
       '',
       '```yaml',
-      ...usage(tool, p.version),
+      ...usage(tool, recorded.version),
       '```',
       '',
       '## Tool image',
@@ -38,7 +38,7 @@ export function toolRelease({ tool, recorded: p, layers, digest, image, reposito
       '| --- | --- | --- | --- |',
       ...rows,
       '',
-      `Image \`${image}:${p.tag}@${digest}\`, line \`${p.line}\`, revision ${p.revision}, built from ${repository}@${commit.slice(0, 7)}.`,
+      `Image \`${image}:${recorded.tag}@${digest}\`, line \`${recorded.line}\`, revision ${recorded.revision}, built from ${repository}@${commit.slice(0, 7)}.`,
     ].join('\n'),
   };
 }
