@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, diffIndex, releaseNotes } from '../lib/index.mjs';
+import { buildIndex, releaseNotes } from '../lib/index.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const java = parseToolDefinition('java', {
@@ -89,11 +89,6 @@ const both = (tool, version, revision, digest, line) => ['linux/amd64', 'linux/a
 test('release notes list added, replaced and retired versions once per version, with tool release links (D20)', () => {
   const before = [...both('node', '24.19.0', 1, 'a', '24'), ...both('node', '26.11.1', 1, 'b', '26'), ...both('maven', '3.9.16', 1, 'm')];
   const after = [...both('node', '26.11.1', 2, 'c', '26'), ...both('node', '26.11.2', 1, 'd', '26'), ...both('maven', '3.9.16', 1, 'm')];
-  const changes = diffIndex(before, after);
-  assert.deepEqual(
-    Object.fromEntries(Object.entries(changes).map(([kind, items]) => [kind, items.map((i) => `${i.tool} ${i.version}`)])),
-    { added: ['node 26.11.2'], replaced: ['node 26.11.1'], retired: ['node 24.19.0'] },
-  );
   assert.equal(releaseNotes({ version: '0.2.0', previous: '0.1.0', repository: 'camunda/infra-tools', before, after }), [
     'Index: `0.2.0-tools`, previous: `0.1.0-tools`',
     '',

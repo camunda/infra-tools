@@ -60,7 +60,7 @@ export function buildIndex({ tools, catalogs, previous, layers }) {
 }
 
 // Tool versions added, replaced (new revision) and retired between two indexes, once per version.
-export function diffIndex(before, after) {
+function diffIndex(before, after) {
   const byVersion = (entries) => {
     const versions = new Map();
     for (const e of entries) {
