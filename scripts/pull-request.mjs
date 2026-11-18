@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
-import { Registry } from './lib/registry.mjs';
+import { Registry, tagExists } from './lib/registry.mjs';
 import { readCatalog, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
@@ -62,7 +62,7 @@ const { builds, warnings, notes } = await checkPullRequest({
   tools,
   baseTools,
   changedFiles,
-  plan: { tagExists: (tag) => registry.exists(tag), now: Date.now() },
+  plan: { tagExists: tagExists(registry), now: Date.now() },
   catalogs,
   previousRelease: { index: previousVersion ? await readIndex(registry, previousTag) : [], version: previousVersion },
   toolImageLayers: (tag) => registry.toolImageLayers(tag),

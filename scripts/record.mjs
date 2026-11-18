@@ -8,13 +8,11 @@ import { join } from 'node:path';
 import { commitMessage, recordRun } from './lib/reconcile.mjs';
 import { planEveryTool, reconcilerOptions } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
-import { readCatalog, writeCatalog } from './lib/repository.mjs';
+import { writeCatalog } from './lib/repository.mjs';
 
 const values = reconcilerOptions('record.mjs');
 
-const { tools, plans } = await planEveryTool(new Registry(values.image));
-const catalogs = {};
-for (const { name } of tools) catalogs[name] = await readCatalog(name);
+const { tools, catalogs, plans } = await planEveryTool(new Registry(values.image));
 const run = recordRun({ tools, catalogs, plans, now: new Date().toISOString() });
 for (const tool of tools) {
   const entries = run.catalogs[tool.name];
