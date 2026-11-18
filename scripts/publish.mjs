@@ -3,21 +3,19 @@
 // (record.mjs; default build/out/reconcile), tagged on the build commit its tool image carries (lib/tool-release.mjs). A tool
 // image without one fails the run before its record commit. A tool release that exists is left as it is. Uses gh and its token
 // (GH_TOKEN or GITHUB_TOKEN).
-import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { reconcilerOptions } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
-import { readToolDefinition } from './lib/repository.mjs';
+import { ghApi, readToolDefinition } from './lib/repository.mjs';
 import { imageToolRelease } from './lib/tool-release.mjs';
 
 const values = reconcilerOptions('publish.mjs', { repository: '<owner>/<name>' });
 
-const gh = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
 // The tool release of a tag, or null when there is none; any other error throws.
 function existingRelease(tag) {
   try {
-    return JSON.parse(gh('', `repos/${values.repository}/releases/tags/${encodeURIComponent(tag)}`));
+    return JSON.parse(ghApi('', `repos/${values.repository}/releases/tags/${encodeURIComponent(tag)}`));
   } catch (err) {
     if (/\(HTTP 404\)/.test(err.stderr)) return null;
     throw err;
@@ -33,6 +31,6 @@ for (const recorded of unreleased) {
     continue;
   }
   const release = await imageToolRelease({ tool: await readToolDefinition(recorded.tool), recorded, registry, repository: values.repository });
-  const created = JSON.parse(gh(JSON.stringify(release), '--method', 'POST', `repos/${values.repository}/releases`, '--input', '-'));
+  const created = JSON.parse(ghApi(JSON.stringify(release), '--method', 'POST', `repos/${values.repository}/releases`, '--input', '-'));
   console.log(`${recorded.tag}: tool release created, ${created.html_url}`);
 }

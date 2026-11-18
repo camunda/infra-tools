@@ -14,7 +14,7 @@ import { parseArgs } from 'node:util';
 import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
 import { Registry, tagExists } from './lib/registry.mjs';
-import { readCatalog, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
+import { ghApi, readCatalog, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const { values } = parseArgs({
@@ -77,12 +77,11 @@ const preview = previewComment({ builds, warnings, notes });
 if (preview !== null) await writeFile(join(values.out, 'comment.md'), preview);
 
 if (values.comment) {
-  const gh = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
-  const comments = JSON.parse(gh('', '--paginate', '--slurp', `repos/${values.repository}/issues/${values.comment}/comments`)).flat();
+  const comments = JSON.parse(ghApi('','--paginate', '--slurp', `repos/${values.repository}/issues/${values.comment}/comments`)).flat();
   const update = previewCommentUpdate(comments, preview);
   if (update) {
     const path = update.id ? `issues/comments/${update.id}` : `issues/${values.comment}/comments`;
-    gh(JSON.stringify({ body: update.body }), '--method', update.id ? 'PATCH' : 'POST', `repos/${values.repository}/${path}`, '--input', '-');
+    ghApi(JSON.stringify({ body: update.body }), '--method', update.id ? 'PATCH' : 'POST', `repos/${values.repository}/${path}`, '--input', '-');
   }
   console.log(update ? `release notes preview comment ${update.id ? 'updated' : 'created'}` : 'release notes preview comment: none to post');
 }
