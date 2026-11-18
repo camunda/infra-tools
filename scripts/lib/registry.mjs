@@ -1,6 +1,5 @@
 // Minimal OCI distribution client for the source registry: token exchange as on ghcr.io (any user name with a GitHub token).
-import { createHash } from 'node:crypto';
-import { manifestBytes, MEDIA_TYPES } from './oci-index.mjs';
+import { manifestBytes, MEDIA_TYPES, sha256 } from './oci.mjs';
 
 const ACCEPT = [
   MEDIA_TYPES.index,
@@ -9,7 +8,6 @@ const ACCEPT = [
   'application/vnd.docker.distribution.manifest.v2+json',
 ].join(', ');
 
-const sha256 = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class Registry {
