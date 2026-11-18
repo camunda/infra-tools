@@ -169,7 +169,7 @@ Runs on a schedule, on push to `main` and on demand; one run at a time (`concurr
    - Plan = remaining versions whose tag `<tool>-<version>-r<revision>` is missing (404; any other registry error fails the run).
 2. Build and test each planned version and platform (Bake).
 3. Publish each success: push the tool image, create the tool release (skip if it exists).
-4. Record: update `published/<tool>.json`, one commit per run with one conventional entry per version (`feat(node): publish 26.11.2`, `fix(java): republish 21.0.12+101.0.LTS (r2)`, `feat(node)!: retire 24.19.0`).
+4. Record: update `published/<tool>.json`, one commit per run with one conventional entry per version (`feat(node): publish 26.11.2`, `fix(java): republish 21.0.12+101.0.LTS (r2)`, `feat(node)!: retire 24.19.0`): the first as subject, the others in `BEGIN_NESTED_COMMIT`/`END_NESTED_COMMIT` blocks, which release-please reads as one commit each.
 5. Fix PRs, per failure:
    - Same tool and major with an open fix PR and the same error: add the version to it; otherwise open `tool-build/<tool>-<version>` (label `tool-build`), starting from an empty commit (the version is already in its line).
    - Body: failing step, log excerpt, run link; comment only when the error changes.

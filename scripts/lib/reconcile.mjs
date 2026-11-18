@@ -36,6 +36,11 @@ export function recordRun({ tools, catalogs, plans, now }) {
 
 const entry = (c) => `${c.type}(${c.tool})${c.breaking ? '!' : ''}: ${c.text}`;
 
-// The record commit message: one conventional entry per change, the first as subject, the others as additional entries in the
-// body (release-please reads each one). Empty when nothing changed: no commit.
-export const commitMessage = (changes) => (changes.length ? `${changes.map(entry).join('\n\n')}\n` : '');
+// The record commit message: one conventional entry per change, the first as subject, the others as nested commits in the body,
+// which release-please reads as one commit each, breaking ones included. Empty when nothing changed: no commit.
+export function commitMessage(changes) {
+  if (!changes.length) return '';
+  const [subject, ...others] = changes.map(entry);
+  const nested = others.flatMap((e) => ['BEGIN_NESTED_COMMIT', e, 'END_NESTED_COMMIT']);
+  return `${[subject, ...(nested.length ? ['', ...nested] : [])].join('\n')}\n`;
+}
