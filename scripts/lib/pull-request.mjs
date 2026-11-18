@@ -5,11 +5,17 @@ import { compareVersions } from './versions.mjs';
 
 const major = (version) => version.match(/^\d+/)?.[0] ?? version;
 
+// Files every tool version is built or tested with (build/docker-bake.hcl, scripts/build.mjs).
+const SHARED_BUILD = ['build/', 'scripts/build.mjs', 'scripts/lib/build.mjs'];
+
+// Tool files: tools/<tool>/..., plus the shared build.
+const toolFiles = (tool, changedFiles) => changedFiles.filter((file) => file.startsWith(`tools/${tool.name}/`) || SHARED_BUILD.some((p) => file.startsWith(p)));
+
 // tools: every tool definition at the PR head. changedFiles: paths changed by the PR. lookup, tagExists, now: as planTool's.
 // Returns the builds of the dry run: the planned versions of every changed tool, plus its latest published version per major.
 export async function checkPullRequest({ tools, changedFiles, lookup, tagExists, now }) {
   const builds = [];
-  for (const tool of tools.filter((t) => changedFiles.some((file) => file.startsWith(`tools/${t.name}/`)))) {
+  for (const tool of tools.filter((t) => toolFiles(t, changedFiles).length)) {
     const plan = await planTool(tool, { lookup, tagExists, now });
     const latest = new Map();
     for (const v of plan.versions.filter((v) => v.reason === 'published')) {
