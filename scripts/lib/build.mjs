@@ -4,22 +4,24 @@ import { compareVersions, folderVersion, tagFor } from './versions.mjs';
 
 // Throws when the tool definition does not publish the version: in no line, ignored, retired, or neither pinned (versions,
 // revisions) nor at or above its line's from. Upstream stability and minAge are the plan's to check.
-export function buildTarget(tool, version) {
+// published: the version's catalog entry, for dry runs only (spec §5.4): a published version the tool definition no longer
+// publishes (fixed pin replaced, line stopped or removed, from raised) is still built, with its catalog line and revision,
+// unless it is retired.
+export function buildTarget(tool, version, { published } = {}) {
   const where = `tools/${tool.name}/tool.json`;
   const line = lineFor(tool, version);
-  if (!line) throw new Error(`${tool.name} ${version} is in no version line of ${where}`);
-  if (line.ignoredVersions?.includes(version)) throw new Error(`${tool.name} ${version} is ignored in line ${line.key} of ${where}`);
-  if (isRetired(tool, version)) throw new Error(`${tool.name} ${version} is retired in line ${line.key} of ${where}`);
-  const pinned = line.versions?.includes(version) || line.revisions?.[version];
-  if (!pinned && !(line.from && compareVersions(version, line.from) >= 0)) {
-    throw new Error(`${tool.name} ${version} is not published by line ${line.key} of ${where}`);
+  let key = line?.key;
+  let revision = revisionOf(tool, version);
+  const unpublished = unpublishedReason(tool, version, line);
+  if (unpublished) {
+    if (!published || published.retired || isRetired(tool, version)) throw new Error(`${tool.name} ${version} ${unpublished} ${where}`);
+    ({ line: key, revision } = published);
   }
-  const revision = revisionOf(tool, version);
   const { cacheFolder, archFolders } = tool.install;
   return {
     tool: tool.name,
     version,
-    line: line.key,
+    line: key,
     revision,
     tag: tagFor(tool.name, version, revision),
     args: {
@@ -30,4 +32,14 @@ export function buildTarget(tool, version) {
       ARCH_FOLDERS: Object.entries(archFolders).map(([arch, folder]) => `${arch}=${folder}`).join(' '),
     },
   };
+}
+
+// Why the tool definition does not publish a version, or undefined when it does.
+function unpublishedReason(tool, version, line) {
+  if (!line) return 'is in no version line of';
+  if (line.ignoredVersions?.includes(version)) return `is ignored in line ${line.key} of`;
+  if (isRetired(tool, version)) return `is retired in line ${line.key} of`;
+  const pinned = line.versions?.includes(version) || line.revisions?.[version];
+  if (!pinned && !(line.from && compareVersions(version, line.from) >= 0)) return `is not published by line ${line.key} of`;
+  return undefined;
 }
