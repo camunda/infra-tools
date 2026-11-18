@@ -116,6 +116,36 @@ install_layer() {
   touch "${target}.complete"
 }
 
+# Hash ./mvnw (only-script) names its distribution folder with: Java's String.hashCode of the distribution URL, in hex.
+wrapper_hash() {
+  local text="$1" h=0
+  while [[ -n "${text}" ]]; do
+    h=$(((h * 31 + $(LC_CTYPE=C printf %d "'${text:0:1}")) % 4294967296))
+    text="${text:1}"
+  done
+  printf %x "${h}"
+}
+
+# Links Maven into the folder ./mvnw runs it from, $MAVEN_USER_HOME/wrapper/dists/apache-maven-<version>/<hash>, when the
+# repository's .mvn/wrapper asks for the same version (D32); ./mvnw then does not download it.
+link_wrapper() {
+  local home="$1" maven="$2" properties="${GITHUB_WORKSPACE:-}/.mvn/wrapper/maven-wrapper.properties" url name dists
+  [[ -n "${GITHUB_WORKSPACE:-}" && -f "${properties}" ]] || return 0
+  url="$(sed -n 's/^distributionUrl=//p' "${properties}" | tr -d '[:space:]')"
+  name="${url##*/}"
+  name="${name%.*}"
+  name="${name%-bin}"
+  [[ "${name}" == apache-maven-* ]] || return 0
+  if [[ "${name}" != "apache-maven-${maven}" ]]; then
+    echo "::notice::infra-tools: .mvn/wrapper asks for maven ${name#apache-maven-}, not the installed ${maven}: ./mvnw downloads it"
+    return 0
+  fi
+  dists="${MAVEN_USER_HOME:-${HOME}/.m2}/wrapper/dists/${name}"
+  mkdir -p "${dists}"
+  [[ -e "${dists}/$(wrapper_hash "${url}")" ]] || ln -s "${home}" "${dists}/$(wrapper_hash "${url}")"
+  echo "maven: ./mvnw linked to ${home}"
+}
+
 # mode: validate checks the selectors of the tools and tool-cache inputs of every infra-tools step in the repository's
 # workflows and local actions against the index on every platform, so an invalid one fails before merge; it installs
 # nothing. Each invalid selector gets an error annotation on its file.
@@ -249,6 +279,7 @@ for selector in "${selectors[@]}"; do
   if [[ -n "${add_path[${selector}]}" ]]; then echo "${home[${selector}]}/${add_path[${selector}]}" >>"${GITHUB_PATH}"; fi
   versions="$(jq -c --arg tool "${selector%%@*}" --arg version "${version[${selector}]}" '.[$tool] = $version' <<<"${versions}")"
   echo "${selector}: ${version[${selector}]} ${detail[${selector}]} -> ${home[${selector}]}"
+  if [[ "${selector%%@*}" == maven ]]; then link_wrapper "${home[${selector}]}" "${version[${selector}]}"; fi
   rows+=("| ${selector} | ${version[${selector}]} | ${detail[${selector}]} | ${home[${selector}]} |")
 done
 echo "versions=${versions}" >>"${GITHUB_OUTPUT}"
