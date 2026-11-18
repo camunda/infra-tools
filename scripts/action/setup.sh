@@ -51,14 +51,14 @@ layout() {
     "${root}/tools/$1/tool.json"
 }
 
-# Set by connect(): the index's registry host, its API base URL, the authorization header and this platform's index layers.
+# Set by connect(): the index's registry host, its API base URL, the authorization header and the platform's index layers.
 registry="" api="" auth=() layers=""
 
-# Logs in to the index's registry and reads the layers of this platform's manifest.
+# Logs in to the index's registry and reads the layers of a platform's manifest (amd64 or arm64, this runner's by default).
 connect() {
   [[ -n "${INDEX:-}" ]] || fail "no index to install from: set the index input"
   registry="${INDEX%%/*}"
-  local repository="${INDEX#*/}" challenge realm service bearer digest
+  local platform="${1:-${arch}}" repository="${INDEX#*/}" challenge realm service bearer digest
   local name="${repository%:*}"
   # INFRA_TOOLS_REGISTRY_SCHEME is for tests only (scripts/test/action.test.mjs serves a fake registry over http).
   api="${INFRA_TOOLS_REGISTRY_SCHEME:-https}://${registry}/v2/${name}"
@@ -78,12 +78,18 @@ connect() {
   echo "login ${registry}: $(($(now_ms) - started)) ms"
   started="$(now_ms)"
   digest="$(get -H "Accept: ${media_index}" "${api}/manifests/${repository##*:}" \
-    | jq -r --arg arch "${arch}" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest')" \
+    | jq -r --arg arch "${platform}" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest')" \
     || fail "cannot read the index ${INDEX}"
-  [[ -n "${digest}" ]] || fail "the index ${INDEX} has no linux/${arch} manifest"
+  [[ -n "${digest}" ]] || fail "the index ${INDEX} has no linux/${platform} manifest"
   layers="$(get -H "Accept: ${media_manifest}" "${api}/manifests/${digest}" | jq -c .layers)" || fail "cannot read the index ${INDEX}"
   echo "index: $(($(now_ms) - started)) ms"
   echo "::endgroup::"
+}
+
+# Versions of a tool in the index layers read by connect().
+published() {
+  jq -r --arg tool "$1" --arg a "${annotation}" \
+    '.[] | select(.annotations[$a + ".tool"] == $tool) | .annotations[$a + ".version"]' <<<"${layers}"
 }
 
 get() { curl -fsSL --retry 3 --retry-all-errors --retry-delay 1 --connect-timeout 10 "${auth[@]}" "$@"; }
@@ -108,6 +114,74 @@ install_layer() {
   [[ -d "${target}" ]] || fail "${tool}: layer ${digest} does not hold ${target#"${tool_cache}"/}"
   touch "${target}.complete"
 }
+
+# mode: validate checks the selectors of the tools and tool-cache inputs of every infra-tools step in the repository's
+# workflows and local actions against the index on every platform, so an invalid one fails before merge; it installs
+# nothing. Each invalid selector gets an error annotation on its file.
+if [[ "${MODE:-extract}" == validate ]]; then
+  echo "versions={}" >>"${GITHUB_OUTPUT}"
+  command -v yq >/dev/null || fail "mode: validate needs yq"
+  cd "${GITHUB_WORKSPACE:?}"
+  declared=() # "<file>\t<input>\t<selector>"
+  for file in .github/workflows/*.y*ml .github/actions/*/action.y*ml; do
+    [[ -f "${file}" ]] || continue
+    inputs="$(yq -r '.. | select(type == "!!map" and has("uses")) | select(.uses | test("^camunda/infra-tools@"))
+      | ("tools " + (.with.tools // "" | sub("\s+"; " "))), ("tool-cache " + (.with["tool-cache"] // "" | sub("\s+"; " ")))' \
+      "${file}" 2>&1)" || {
+      echo "::error file=${file}::infra-tools: cannot read ${file}: ${inputs//$'\n'/ }"
+      exit 1
+    }
+    mapfile -t -O "${#declared[@]}" declared < <(awk -v file="${file}" '{ for (i = 2; i <= NF; i++) print file "\t" $1 "\t" $i }' <<<"${inputs}")
+  done
+  if ((${#declared[@]} == 0)); then
+    echo "::notice::infra-tools: no infra-tools step in .github/workflows or .github/actions, nothing to validate"
+    exit 0
+  fi
+  declare -A platform_layers
+  for platform in amd64 arm64; do
+    connect "${platform}"
+    platform_layers["${platform}"]="${layers}"
+  done
+  failed=0
+  for declaration in "${declared[@]}"; do
+    IFS=$'\t' read -r file input selector <<<"${declaration}"
+    tool="${selector%%@*}" want=""
+    [[ "${selector}" == *@* ]] && want="${selector#*@}"
+    if [[ ! -f "${root}/tools/${tool}/tool.json" ]]; then
+      echo "::error file=${file}::infra-tools: unknown tool '${tool}'; tools: $(cd "${root}/tools" && echo *)"
+      failed=1
+      continue
+    fi
+    IFS=$'\t' read -r _ _ path_folder < <(layout "${tool}")
+    if [[ -n "${path_folder}" && "${input}" != tools ]]; then
+      echo "::error file=${file}::infra-tools: ${tool} is a plain tool: list it under tools, not ${input}"
+      failed=1
+      continue
+    elif [[ -z "${path_folder}" && "${input}" != tool-cache ]]; then
+      echo "::error file=${file}::infra-tools: ${tool} is a tool-cache tool: list it under tool-cache, not ${input}"
+      failed=1
+      continue
+    fi
+    found="" absent=""
+    for platform in amd64 arm64; do
+      layers="${platform_layers[${platform}]}"
+      mapfile -t candidates < <(published "${tool}")
+      resolved="$(highest "${want}" "${candidates[@]}")"
+      if [[ -n "${resolved}" ]]; then
+        found+="${found:+, }${resolved} on linux/${platform}"
+      else
+        absent+="${absent:+, }linux/${platform}"
+      fi
+    done
+    if [[ -n "${absent}" ]]; then
+      echo "::error file=${file}::infra-tools: ${selector} matches no version in ${INDEX} on ${absent}"
+      failed=1
+    else
+      echo "${file}: ${selector}: ${found}"
+    fi
+  done
+  exit "${failed}"
+fi
 
 mapfile -t selectors < <(tr -s ' \t\r\n' '\n' <<<"${TOOLS:-}" | sed '/^$/d')
 declare -A want folder arch_folder add_path home version detail
@@ -137,9 +211,8 @@ if ((${#missing[@]})); then
   connect
   for selector in "${missing[@]}"; do
     tool="${selector%%@*}"
-    mapfile -t published < <(jq -r --arg tool "${tool}" --arg a "${annotation}" \
-      '.[] | select(.annotations[$a + ".tool"] == $tool) | .annotations[$a + ".version"]' <<<"${layers}")
-    resolved="$(highest "${want[${selector}]}" "${published[@]}")"
+    mapfile -t candidates < <(published "${tool}")
+    resolved="$(highest "${want[${selector}]}" "${candidates[@]}")"
     [[ -n "${resolved}" ]] || fail "${selector} matches no version in ${INDEX}"
     layer="$(jq -c --arg tool "${tool}" --arg version "${resolved}" --arg a "${annotation}" \
       '[.[] | select(.annotations[$a + ".tool"] == $tool and .annotations[$a + ".version"] == $version)][0]' <<<"${layers}")"

@@ -3,9 +3,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { FakeRegistry, REPOSITORY, TOKEN } from './fake-registry.mjs';
@@ -248,4 +248,70 @@ test('the job summary is left alone by default', async () => {
   const result = await action({ tools: 'maven@3.9' });
   assert.equal(result.status, 0, result.log);
   assert.equal(result.summary, '');
+});
+
+// A file of the repository the action runs in (GITHUB_WORKSPACE).
+async function repositoryFile(path, content) {
+  const file = join(runner, 'workspace', path);
+  await mkdir(dirname(file), { recursive: true });
+  await writeFile(file, content);
+}
+
+// An infra-tools step with the given inputs, as consumers pin it.
+const step = (inputs) =>
+  `jobs:
+  build:
+    steps:
+    - uses: camunda/infra-tools@0123456789abcdef # 1.0.0
+      with:
+${Object.entries(inputs)
+  .map(([input, selectors]) => `        ${input}: |\n${selectors.map((s) => `          ${s}\n`).join('')}`)
+  .join('')}`;
+
+// The real HOME, for a yq installed by a version manager (asdf shims read ~/.tool-versions).
+const validate = (env = {}) => action({ env: { MODE: 'validate', HOME: process.env.HOME, ...env } });
+
+test('mode: validate passes the selectors of every workflow and local action, and installs nothing', async () => {
+  await repositoryFile(
+    '.github/workflows/ci.yml',
+    `jobs:
+  build:
+    steps:
+    - uses: actions/checkout@v6
+      with:
+        tools: nothing@1
+    - uses: camunda/infra-tools@0123456789abcdef # 1.0.0
+      with:
+        tools: |
+          maven@3.9
+          maven@3.10.1
+`,
+  );
+  await repositoryFile(
+    '.github/actions/build/action.yaml',
+    `runs:
+  using: composite
+  steps:
+  - uses: camunda/infra-tools@0123456789abcdef # 1.0.0
+    with:
+      tools: maven
+`,
+  );
+  const result = await validate();
+  assert.equal(result.status, 0, result.log);
+  assert.match(result.log, /^\.github\/workflows\/ci\.yml: maven@3\.9: 3\.9\.16 on linux\/amd64, 3\.9\.16 on linux\/arm64$/m);
+  assert.match(result.log, /^\.github\/workflows\/ci\.yml: maven@3\.10\.1: /m);
+  assert.match(result.log, /^\.github\/actions\/build\/action\.yaml: maven: 3\.10\.1 on linux\/amd64, 3\.10\.1 on linux\/arm64$/m);
+  assert.doesNotMatch(result.log, /nothing@1/);
+  assert.deepEqual(result.path, []);
+  assert.deepEqual(await readdir(toolCache()), []);
+  assert.equal(registry.requests.filter((r) => r.includes('/blobs/')).length, 0);
+  assert.equal(result.outputs.versions, '{}');
+});
+
+test('mode: validate fails on a workflow it cannot read', async () => {
+  await repositoryFile('.github/workflows/ci.yml', 'jobs: [\n');
+  const result = await validate();
+  assert.notEqual(result.status, 0);
+  assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: cannot read \.github\/workflows\/ci\.yml/m);
 });

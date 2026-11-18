@@ -7,6 +7,10 @@ inputs:
     description: >-
       Plain tools, one selector per line (`<tool>[@<version prefix>]`, e.g. `maven@3`), resolved to the highest matching version; present tools are not downloaded.
     default: ''
+  mode:
+    description: >-
+      `extract` installs the selected tools; `validate` checks the selectors of the repository's workflows and local actions against the index, installing nothing (needs yq).
+    default: extract
   token:
     description: Token allowed to pull from the index registry.
     default: ${{ github.token }}
@@ -32,6 +36,7 @@ runs:
     shell: bash
     env:
       TOOLS: ${{ inputs.tools }}
+      MODE: ${{ inputs.mode }}
       TOKEN: ${{ inputs.token }}
       INDEX: ${{ inputs.index }}
       SUMMARY: ${{ inputs.summary }}
