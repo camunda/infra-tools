@@ -1,0 +1,86 @@
+{
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  // Tool versions (tools/*/tool.json) are published by the reconciler, not by Renovate (D21).
+  extends: [
+    "config:recommended",
+    ":enablePreCommit",
+    ":semanticCommits",
+    ":semanticCommitTypeAll(deps)",
+    // Only rebase PRs on real conflicts, not on every base-branch push.
+    // Opt back in per-PR via the `keep-updated` (continuous) or `rebase` (one-off) label.
+    "github>camunda/infra-renovate-config:rebase.json5",
+  ],
+  semanticCommitScope: null,
+  schedule: ["at any time"],
+  platformAutomerge: false,
+  prHourlyLimit: 6,
+  prConcurrentLimit: 20,
+  separateMajorMinor: false,
+  updateNotScheduled: false,
+  prBodyNotes: [
+    "{{#if isMajor}}:warning: THIS IS A MAJOR VERSION UPDATE :warning:{{/if}}",
+    "Before merging, *always* check with the release notes if any other changes need to be done.",
+  ],
+  major: {
+    enabled: true,
+    addLabels: ["upgrade:major"],
+  },
+  minor: {
+    enabled: true,
+    addLabels: ["upgrade:minor"],
+  },
+  patch: {
+    enabled: true,
+    addLabels: ["upgrade:patch"],
+  },
+  vulnerabilityAlerts: {
+    labels: ["security"],
+    enabled: true,
+  },
+  lockFileMaintenance: {
+    addLabels: ["automerge"],
+    schedule: "every weekend",
+    automerge: true,
+    enabled: true,
+  },
+  packageRules: [
+    {
+      description: "Labeling: GitHub Actions PRs",
+      matchManagers: ["github-actions"],
+      addLabels: ["group:github-actions", "component:ci"],
+    },
+    {
+      // Renovate is released several times a day; one PR a week is enough for the library the scripts use.
+      description: "Schedule: Renovate library weekly",
+      matchManagers: ["npm"],
+      matchPackageNames: ["renovate"],
+      schedule: ["on Monday"],
+    },
+    {
+      description: "Automerge: GitHub Actions minor/patch updates",
+      matchUpdateTypes: ["minor", "patch"],
+      matchManagers: ["github-actions"],
+      addLabels: ["automerge"],
+      automerge: true,
+    },
+    {
+      description: "Automerge: infra-global-github-actions digest updates",
+      matchUpdateTypes: ["digest"],
+      matchDepNames: ["camunda/infra-global-github-actions"],
+      groupName: "infra-global-github-actions",
+      commitMessageTopic: "infra-global-github-actions digest",
+      commitMessageExtra: "to {{newDigestShort}}",
+      changelogUrl: "https://github.com/camunda/infra-global-github-actions/compare/{{currentDigest}}..{{newDigest}}",
+      addLabels: ["automerge"],
+      automerge: true,
+    },
+    {
+      description: "Automerge: pre-commit hooks (all update types)",
+      matchUpdateTypes: ["major", "minor", "patch"],
+      matchManagers: ["pre-commit"],
+      groupName: "pre-commit hooks",
+      addLabels: ["automerge"],
+      automerge: true,
+    },
+  ],
+}

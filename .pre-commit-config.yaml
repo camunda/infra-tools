@@ -1,0 +1,60 @@
+---
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+default_install_hook_types: [pre-commit, commit-msg]
+exclude: ^CHANGELOG\.md$
+repos:
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: check-added-large-files
+  - id: check-executables-have-shebangs
+  - id: check-json
+  - id: check-merge-conflict
+  - id: detect-private-key
+  - id: end-of-file-fixer
+  - id: trailing-whitespace
+- repo: https://github.com/rhysd/actionlint
+  rev: v1.7.12
+  hooks:
+  - id: actionlint
+    args: ["-config-file", ".lint/actionlint/actionlint.yaml"]
+# Every audit, with the pinning policy in .github/zizmor.yml. Online audits run when a GitHub token is set
+# (GH_TOKEN or ZIZMOR_GITHUB_TOKEN), as in the Lint workflow, and are skipped otherwise.
+- repo: https://github.com/zizmorcore/zizmor-pre-commit
+  rev: v1.32.0
+  hooks:
+  - id: zizmor
+    args: ["--no-progress", "--config=.github/zizmor.yml"]
+- repo: https://github.com/shellcheck-py/shellcheck-py
+  rev: v0.11.0.1
+  hooks:
+  - id: shellcheck
+- repo: https://github.com/compilerla/conventional-pre-commit
+  rev: v4.5.0
+  hooks:
+  - id: conventional-pre-commit
+    stages: [commit-msg]
+    args: []
+- repo: https://github.com/executablebooks/mdformat
+  rev: 1.0.0
+  hooks:
+  - id: mdformat
+    # Keep ordered lists numbered: the spec refers to steps by number.
+    args: ["--number"]
+- repo: https://github.com/renovatebot/pre-commit-hooks
+  rev: 44.251.0
+  hooks:
+  - id: renovate-config-validator
+    args: ["--strict"]
+    language_version: lts
+- repo: https://github.com/google/yamlfmt
+  rev: v0.21.0
+  hooks:
+  - id: yamlfmt
+    args: ["-conf", ".lint/yamlfmt/.yamlfmt.yml"]
+- repo: https://github.com/adrienverge/yamllint
+  rev: v1.38.0
+  hooks:
+  - id: yamllint
+    args: ["-c", ".lint/yamllint/.yamllint"]

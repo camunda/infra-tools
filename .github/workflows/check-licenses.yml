@@ -1,0 +1,98 @@
+---
+name: Check Licenses
+
+on:
+  push:
+    branches:
+    - main
+    tags:
+    - '*'
+  pull_request:
+    types:
+    - opened
+    - synchronize
+  merge_group:
+
+permissions: {}
+
+jobs:
+  analyze:
+    name: Analyze dependencies
+    # The FOSSA API key comes from Vault, which fork pull requests cannot reach; skip them so they still get a green check.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      actions: read # fossa/info calls gh api .../actions/runs and gh run list
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Import Secrets
+      id: secrets
+      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+      with:
+        url: ${{ secrets.VAULT_ADDR }}
+        method: jwt
+        role: ${{ secrets.VAULT_JWT_ROLE }}
+        path: ${{ secrets.VAULT_JWT_PATH }}
+        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        exportEnv: false
+        secrets: |
+          secret/data/products/infra/ci/fossa FOSSA_API_KEY;
+
+    - name: Setup fossa-cli
+      uses: camunda/infra-global-github-actions/fossa/setup@b20a0e8f64ea6554900bab2d3fb3906be613aa19
+
+    - name: Get context info
+      id: info
+      uses: camunda/infra-global-github-actions/fossa/info@b20a0e8f64ea6554900bab2d3fb3906be613aa19
+
+    - name: Analyze project
+      uses: camunda/infra-global-github-actions/fossa/analyze@b20a0e8f64ea6554900bab2d3fb3906be613aa19
+      with:
+        api-key: ${{ steps.secrets.outputs.FOSSA_API_KEY }}
+        branch: ${{ steps.info.outputs.head-ref }}
+        revision-id: ${{ steps.info.outputs.head-revision }}
+
+    # Fails only on license issues the PR introduces, not on ones already on the base branch.
+    - name: Check Pull Request for new License Issues
+      if: steps.info.outputs.is-pull-request == 'true'
+      uses: camunda/infra-global-github-actions/fossa/pr-check@b20a0e8f64ea6554900bab2d3fb3906be613aa19
+      with:
+        api-key: ${{ steps.secrets.outputs.FOSSA_API_KEY }}
+        base-ref: ${{ steps.info.outputs.base-ref }}
+        # The most recent base commit with a FOSSA scan; the original base commit (which fails the check) when there is none.
+        base-revision: >-
+          ${{
+            steps.info.outputs.base-revision-most-recent-with-scanning-results ||
+            steps.info.outputs.base-revision
+          }}
+        revision: ${{ steps.info.outputs.head-revision }}
+
+  check:
+    name: Check Licenses
+    if: always()
+    permissions: {}
+    needs:
+    - analyze
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Check results
+      env:
+        ERROR: >-
+          ${{
+            contains(needs.*.result, 'failure') ||
+            contains(needs.*.result, 'cancelled')
+          }}
+      run: |
+        if [ "$ERROR" == "true" ]; then
+          echo "The license check has failed or been cancelled."
+          exit 1
+        fi
+        echo "The license check passed or was skipped."

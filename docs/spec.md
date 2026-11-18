@@ -407,7 +407,7 @@ Same tools and versions, 5 runs each (median install / job time):
 
 | Approach | Runner | Install | Job | Run |
 | --- | --- | --- | --- | --- |
-| setup-* actions downloading | GitHub-hosted | 22 s | 36 s | [37939821782](https://github.com/camunda/infra-github-demo/actions/runs/37939821782) |
+| setup-\* actions downloading | GitHub-hosted | 22 s | 36 s | [37939821782](https://github.com/camunda/infra-github-demo/actions/runs/37939821782) |
 | Toolset layers from GHCR | GitHub-hosted | 14 s | 23 s | same |
 | Toolset layers + GitHub cache | GitHub-hosted | 14 s | 25 s | same |
 | Toolset layers from GHCR | self-hosted (GKE) | 19 s | 28 s | [37942159129](https://github.com/camunda/infra-github-demo/actions/runs/37942159129) |
