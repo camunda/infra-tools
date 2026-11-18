@@ -1,7 +1,8 @@
 // Usage: node publish.mjs --image <registry>/<repository> --repository <owner>/<name> --commit <sha> [--out <dir>]
 // Reconciler tool releases (spec §5.3, step 3; §5.5): creates the tool release of every tool version in <out>/tool-releases.json
 // (record.mjs; default build/out/reconcile), tagged on --commit, the commit its layers were built from (lib/tool-release.mjs).
-// A tool release that exists is left as it is. Uses the GitHub token in GH_TOKEN or GITHUB_TOKEN.
+// A tool release that exists is left as it is. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN).
+import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -21,23 +22,21 @@ if (!values.image || !values.repository || !values.commit) {
   throw new Error('usage: node publish.mjs --image <registry>/<repository> --repository <owner>/<name> --commit <sha> [--out <dir>]');
 }
 
-const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
-// GitHub REST API call on the repository; null on 404 when allowed, any other error throws.
-async function github(method, path, { body, allow404 = false } = {}) {
-  const res = await fetch(`${process.env.GITHUB_API_URL ?? 'https://api.github.com'}/repos/${values.repository}${path}`, {
-    method,
-    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28' },
-    body: body && JSON.stringify(body),
-  });
-  if (allow404 && res.status === 404) return null;
-  if (!res.ok) throw new Error(`${method} ${path}: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
-  return res.json();
+const gh = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
+// The tool release of a tag, or null when there is none; any other error throws.
+function existingRelease(tag) {
+  try {
+    return JSON.parse(gh('', `repos/${values.repository}/releases/tags/${encodeURIComponent(tag)}`));
+  } catch (err) {
+    if (/\(HTTP 404\)/.test(err.stderr)) return null;
+    throw err;
+  }
 }
 
 const registry = new Registry(values.image);
 const toolReleases = JSON.parse(await readFile(join(values.out, 'tool-releases.json'), 'utf8'));
 for (const p of toolReleases) {
-  const existing = await github('GET', `/releases/tags/${encodeURIComponent(p.tag)}`, { allow404: true });
+  const existing = existingRelease(p.tag);
   if (existing) {
     console.log(`${p.tag}: tool release exists, ${existing.html_url}`);
     continue;
@@ -51,6 +50,6 @@ for (const p of toolReleases) {
     repository: values.repository,
     commit: values.commit,
   });
-  const created = await github('POST', '/releases', { body: release });
+  const created = JSON.parse(gh(JSON.stringify(release), '--method', 'POST', `repos/${values.repository}/releases`, '--input', '-'));
   console.log(`${p.tag}: tool release created, ${created.html_url}`);
 }
