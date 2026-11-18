@@ -25,20 +25,21 @@ function imageFiles(tool, files, base) {
 }
 
 // tools: every tool definition at the PR head; baseTools: the PR base's, by name. changedFiles: paths changed by the PR.
-// lookup, tagExists, now: as planTool's. catalogs: the catalog entries of every tool, by name. previousIndex and
-// previousVersion: the index and version of the latest release (none: [] and undefined). toolImageLayers(tag): the layers of a
-// published tool image (Registry.toolImageLayers). repository: owner/name, for tool release links.
+// plan: planTool's options (lookup, tagExists, now). catalogs: the catalog entries of every tool, by name. previousRelease:
+// the index and version of the latest release (none: { index: [] }). toolImageLayers(tag): the layers of a published tool
+// image (Registry.toolImageLayers). repository: owner/name, for tool release links.
 // Returns:
 // - builds: the dry run, the planned versions of every changed tool plus its latest published version per major;
 // - warnings: published versions whose build files changed without a revision bump (published tool images never change);
 // - notes: the release notes of the next release once the planned versions are published, or null when no tool changed.
-export async function checkPullRequest({ tools, baseTools, changedFiles, lookup, tagExists, now, catalogs, previousIndex, previousVersion, toolImageLayers, repository }) {
+export async function checkPullRequest({ tools, baseTools, changedFiles, plan: planOptions, catalogs, previousRelease, toolImageLayers, repository }) {
+  const { index: previousIndex, version: previousVersion } = previousRelease;
   const builds = [];
   const warnings = [];
   const planned = {};
   const changedTools = tools.filter((t) => toolFiles(t, changedFiles).length);
   for (const tool of changedTools) {
-    const plan = await planTool(tool, { lookup, tagExists, now });
+    const plan = await planTool(tool, planOptions);
     planned[tool.name] = plan.versions.filter((v) => v.decision === 'publish');
     const published = plan.versions.filter((v) => v.reason === 'published');
     const changed = imageFiles(tool, toolFiles(tool, changedFiles), baseTools[tool.name]);
@@ -68,7 +69,7 @@ export async function checkPullRequest({ tools, baseTools, changedFiles, lookup,
   const nextCatalogs = {};
   for (const tool of tools) {
     const toPublish = planned[tool.name] ?? [];
-    nextCatalogs[tool.name] = mergeCatalog(tool, catalogs[tool.name] ?? [], toPublish, { now: new Date(now).toISOString() }).entries;
+    nextCatalogs[tool.name] = mergeCatalog(tool, catalogs[tool.name] ?? [], toPublish, { now: new Date(planOptions.now).toISOString() }).entries;
     for (const { tag } of toPublish) layers[tag] = Object.fromEntries(PLATFORMS.map((p) => [p, { digest: `planned:${tag}`, size: 0, mediaType: null }]));
     for (const e of nextCatalogs[tool.name]) if (!e.retired && !layers[e.tag]) layers[e.tag] = await toolImageLayers(e.tag);
   }

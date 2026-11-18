@@ -20,7 +20,15 @@ const upstreamOf = (versionsByDatasource, lookedUp = []) => async ({ datasource 
 };
 const tagsIn = (...tags) => async (tag) => tags.includes(tag);
 
-const check = (options) => checkPullRequest({ baseTools: {}, catalogs: {}, previousIndex: [], toolImageLayers: async () => ({}), now, repository: 'camunda/infra-tools', ...options });
+const check = ({ plan, ...options }) => checkPullRequest({
+  baseTools: {},
+  catalogs: {},
+  previousRelease: { index: [] },
+  toolImageLayers: async () => ({}),
+  repository: 'camunda/infra-tools',
+  ...options,
+  plan: { now, ...plan },
+});
 const builds = (result) => result.builds.map((b) => `${b.tool} ${b.version} ${b.tag} (${b.reason})`);
 
 test('a PR changing a tool builds its planned versions and its latest published version per major; other tools are not planned', async () => {
@@ -28,8 +36,10 @@ test('a PR changing a tool builds its planned versions and its latest published 
   const result = await check({
     tools: [java({ 17: { from: '17.0.17' }, 21: { from: '21.0.12' } }), maven({ '*': { from: '3.9.16' } })],
     changedFiles: ['tools/java/install.sh'],
-    lookup: upstreamOf({ 'java-version': ['17.0.17+10', '17.0.18+8', '21.0.12+8', '21.0.13+5', '21.0.14+2'] }, lookedUp),
-    tagExists: tagsIn('java-17.0.17-10-r1', 'java-17.0.18-8-r1', 'java-21.0.12-8-r1', 'java-21.0.13-5-r1'),
+    plan: {
+      lookup: upstreamOf({ 'java-version': ['17.0.17+10', '17.0.18+8', '21.0.12+8', '21.0.13+5', '21.0.14+2'] }, lookedUp),
+      tagExists: tagsIn('java-17.0.17-10-r1', 'java-17.0.18-8-r1', 'java-21.0.12-8-r1', 'java-21.0.13-5-r1'),
+    },
   });
   assert.deepEqual(builds(result), [
     'java 17.0.18+8 java-17.0.18-8-r1 (latest published of major 17)',
@@ -44,13 +54,13 @@ test('a PR changing the shared build plans every tool; a PR changing neither pla
   const lookup = upstreamOf({ 'java-version': ['21.0.12+8'], maven: ['3.9.16'] });
   const tagExists = tagsIn('java-21.0.12-8-r1', 'maven-3.9.16-r1');
   for (const file of ['build/tool.Dockerfile', 'build/test.Dockerfile', 'scripts/lib/build.mjs']) {
-    assert.deepEqual(builds(await check({ tools, changedFiles: [file], lookup, tagExists })), [
+    assert.deepEqual(builds(await check({ tools, changedFiles: [file], plan: { lookup, tagExists } })), [
       'java 21.0.12+8 java-21.0.12-8-r1 (latest published of major 21)',
       'maven 3.9.16 maven-3.9.16-r1 (latest published of major 3)',
     ], file);
   }
   const lookedUp = [];
-  const result = await check({ tools, changedFiles: ['README.md', 'scripts/lib/plan.mjs'], lookup: upstreamOf({}, lookedUp), tagExists });
+  const result = await check({ tools, changedFiles: ['README.md', 'scripts/lib/plan.mjs'], plan: { lookup: upstreamOf({}, lookedUp), tagExists } });
   assert.deepEqual(result.builds, []);
   assert.deepEqual(lookedUp, []);
 });
@@ -59,7 +69,7 @@ test('a PR changing the build files of published versions without a revision bum
   const lines = { 3.9: { versions: ['3.9.15', '3.9.16'], revisions: { '3.9.16': 2 } } };
   const tagExists = tagsIn('maven-3.9.15-r1', 'maven-3.9.16-r2');
   const run = (tool, changedFiles, baseTools = { maven: maven(lines) }) => check({
-    tools: [tool], baseTools, changedFiles, lookup: upstreamOf({ maven: ['3.9.15', '3.9.16'] }), tagExists,
+    tools: [tool], baseTools, changedFiles, plan: { lookup: upstreamOf({ maven: ['3.9.15', '3.9.16'] }), tagExists },
   });
   const warning = (files) => `maven: ${files} changed, but these published versions keep their tool image unless their revision is bumped: 3.9.15 (maven-3.9.15-r1), 3.9.16 (maven-3.9.16-r2)`;
 
@@ -113,14 +123,18 @@ test('the release notes preview shows what the next release adds, replaces and r
     tools: [head.java, head.maven],
     baseTools: before,
     changedFiles: ['tools/java/tool.json'],
-    lookup: upstreamOf({ 'java-version': ['17.0.18+8', '21.0.12+8', '21.0.13+5'] }),
-    tagExists: tagsIn('java-17.0.18-8-r1', 'java-21.0.12-8-r1'),
-    previousVersion: '1.2.0',
-    previousIndex: [
-      ...indexed(before.java, '17.0.18+8', 1, '17'),
-      ...indexed(before.java, '21.0.12+8', 1, '21'),
-      ...indexed(before.maven, '3.9.15', 1, '*'),
-    ],
+    plan: {
+      lookup: upstreamOf({ 'java-version': ['17.0.18+8', '21.0.12+8', '21.0.13+5'] }),
+      tagExists: tagsIn('java-17.0.18-8-r1', 'java-21.0.12-8-r1'),
+    },
+    previousRelease: {
+      version: '1.2.0',
+      index: [
+        ...indexed(before.java, '17.0.18+8', 1, '17'),
+        ...indexed(before.java, '21.0.12+8', 1, '21'),
+        ...indexed(before.maven, '3.9.15', 1, '*'),
+      ],
+    },
     // maven 3.9.16 was published after release 1.2.0: the next release adds it too.
     catalogs: {
       java: [catalogEntry(before.java, '17.0.18+8', 1, '17'), catalogEntry(before.java, '21.0.12+8', 1, '21')],
@@ -160,6 +174,6 @@ test('the release notes preview shows what the next release adds, replaces and r
 });
 
 test('a PR changing no tool has no release notes preview', async () => {
-  const result = await check({ tools: [maven({ '*': { from: '3.9.16' } })], changedFiles: ['README.md'], lookup: upstreamOf({}), tagExists: tagsIn() });
+  const result = await check({ tools: [maven({ '*': { from: '3.9.16' } })], changedFiles: ['README.md'], plan: { lookup: upstreamOf({}), tagExists: tagsIn() } });
   assert.equal(result.notes, null);
 });
