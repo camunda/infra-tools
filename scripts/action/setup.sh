@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
 # The action (action.yml): installs the selected tools from the index into the tool cache, and puts plain tools on PATH.
 # Inputs come from the environment: TOOLS (selectors), TOKEN (registry token) and INDEX (<registry>/<repository>:<tag>).
-# Requires bash 5, curl, jq, tar and sha256sum.
+# Requires bash 5, curl, jq, tar and sha256sum on Linux.
 set -euo pipefail
+
+# Other runners run the action with the bash they have (3.2 on macOS): nothing before this check may need bash 5.
+if [[ "${RUNNER_OS:-}" != Linux ]]; then
+  echo "::notice::infra-tools: ${RUNNER_OS:-this OS} runners are not supported, nothing installed"
+  echo "versions={}" >>"${GITHUB_OUTPUT}"
+  exit 0
+fi
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 annotation=io.camunda.infra-tools
@@ -17,11 +24,6 @@ fail() {
   exit 1
 }
 
-if [[ "${RUNNER_OS:-}" != Linux ]]; then
-  echo "::notice::infra-tools: ${RUNNER_OS:-this OS} runners are not supported, nothing installed"
-  echo "versions={}" >>"${GITHUB_OUTPUT}"
-  exit 0
-fi
 case "${RUNNER_ARCH:-}" in
 X64) arch=amd64 ;;
 ARM64) arch=arm64 ;;
