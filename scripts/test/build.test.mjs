@@ -42,3 +42,10 @@ test('only versions the tool definition publishes have a build target', () => {
   assert.throws(() => buildTarget(maven, '3.9.15'), { message: 'maven 3.9.15 is ignored in line 3.9 of tools/maven/tool.json' });
   assert.throws(() => buildTarget(maven, '3.10.1'), { message: 'maven 3.10.1 is retired in line * of tools/maven/tool.json' });
 });
+
+test('a line publishes its pinned versions and its versions from its from on, nothing else', () => {
+  assert.throws(() => buildTarget(maven, '3.9.14'), { message: 'maven 3.9.14 is not published by line 3.9 of tools/maven/tool.json' });
+  assert.throws(() => buildTarget(maven, '3.9.17'), { message: 'maven 3.9.17 is not published by line 3.9 of tools/maven/tool.json' });
+  assert.equal(buildTarget(maven, '3.11.0').tag, 'maven-3.11.0-r1');
+  assert.equal(buildTarget(java, '21.0.12+8').line, '21');
+});
