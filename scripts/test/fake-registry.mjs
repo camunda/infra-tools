@@ -41,10 +41,13 @@ export class FakeRegistry {
   }
 
   addManifest(manifest, tag) {
-    const bytes = Buffer.from(JSON.stringify(manifest));
+    return this.addManifestBytes(Buffer.from(JSON.stringify(manifest)), manifest.mediaType, tag);
+  }
+
+  addManifestBytes(bytes, mediaType, tag) {
     const digest = sha256(bytes);
-    this.manifests.set(digest, { mediaType: manifest.mediaType, bytes });
-    if (tag) this.manifests.set(tag, { mediaType: manifest.mediaType, bytes });
+    this.manifests.set(digest, { mediaType, bytes });
+    if (tag) this.manifests.set(tag, { mediaType, bytes });
     return { digest, size: bytes.length };
   }
 
@@ -91,7 +94,7 @@ export class FakeRegistry {
       const challenge = `Bearer realm="http://${this.host}/token",service="${this.host}",scope="repository:${REPOSITORY}:pull"`;
       return res.writeHead(401, { 'WWW-Authenticate': challenge }).end();
     }
-    const match = url.pathname.match(/^\/v2\/(.+)\/(manifests|blobs|blobs\/uploads)\/(.*)$/);
+    const match = url.pathname.match(/^\/v2\/(.+?)\/(blobs\/uploads|manifests|blobs)\/(.*)$/);
     if (!match || match[1] !== REPOSITORY) return res.writeHead(404).end();
     const [, , kind, reference] = match;
     if (kind === 'blobs/uploads') return this.upload(req, res, url, reference);
@@ -101,10 +104,12 @@ export class FakeRegistry {
 
   async serveManifest(req, res, reference) {
     if (req.method === 'PUT') {
-      const manifest = JSON.parse(await body(req));
-      if (manifest.mediaType !== req.headers['content-type']) return res.writeHead(400).end('media type mismatch');
-      const { digest } = this.addManifest(manifest, reference.startsWith('sha256:') ? undefined : reference);
-      if (reference.startsWith('sha256:') && reference !== digest) return res.writeHead(400).end('digest mismatch');
+      const bytes = await body(req);
+      const mediaType = req.headers['content-type'];
+      if (JSON.parse(bytes).mediaType !== mediaType) return res.writeHead(400).end('media type mismatch');
+      const byDigest = reference.startsWith('sha256:');
+      if (byDigest && reference !== sha256(bytes)) return res.writeHead(400).end('digest mismatch');
+      const { digest } = this.addManifestBytes(bytes, mediaType, byDigest ? undefined : reference);
       return res.writeHead(201, { 'Docker-Content-Digest': digest }).end();
     }
     const stored = this.manifests.get(reference);
