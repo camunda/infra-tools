@@ -13,44 +13,62 @@ import { FakeRegistry, REPOSITORY, TOKEN } from './fake-registry.mjs';
 const SETUP = fileURLToPath(new URL('../action/setup.sh', import.meta.url));
 const ARCH_FOLDERS = { 'linux/amd64': 'x64', 'linux/arm64': 'arm64' };
 
-// A maven tool image layer: opt/hostedtoolcache/maven/<version>/<arch>, marked complete, as build/tool.Dockerfile makes it.
-async function mavenLayer(dir, version, archFolder) {
-  const root = join(dir, `maven-${version}-${archFolder}`);
-  const home = join(root, 'opt/hostedtoolcache/maven', version, archFolder);
+// A tool image layer: opt/hostedtoolcache/<cache folder>/<folder version>/<arch>, marked complete, as build/tool.Dockerfile
+// makes it, holding bin/<command> printing `<banner> <version>`.
+async function toolLayer(dir, { cacheFolder, folderVersion, archFolder, command, banner }) {
+  const root = join(dir, `${cacheFolder}-${folderVersion}-${archFolder}`);
+  const home = join(root, 'opt/hostedtoolcache', cacheFolder, folderVersion, archFolder);
   await mkdir(join(home, 'bin'), { recursive: true });
-  await writeFile(join(home, 'bin/mvn'), `#!/bin/sh\necho "Apache Maven ${version}"\n`);
-  await chmod(join(home, 'bin/mvn'), 0o755);
+  await writeFile(join(home, 'bin', command), `#!/bin/sh\necho "${banner} ${folderVersion}"\n`);
+  await chmod(join(home, 'bin', command), 0o755);
   await writeFile(`${home}.complete`, '');
   return execFileSync('tar', ['czf', '-', '-C', root, 'opt']);
 }
 
+// The tools of the test index, as their tool definitions in tools/ lay them out.
+const TOOLS = {
+  maven: { versions: ['3.9.16', '3.10.1'], cacheFolder: 'maven', archFolders: ARCH_FOLDERS, addToPath: 'bin', command: 'mvn', banner: 'Apache Maven' },
+  java: {
+    versions: ['21.0.12+8.0.LTS', '21.0.12+101.0.LTS', '25.0.3+9.0.LTS'],
+    cacheFolder: 'Java_Temurin-Hotspot_jdk',
+    archFolders: { 'linux/amd64': 'x64', 'linux/arm64': 'aarch64' },
+    addToPath: null,
+    command: 'java',
+    banner: 'openjdk',
+  },
+  node: { versions: ['24.22.0', '26.13.1'], cacheFolder: 'node', archFolders: ARCH_FOLDERS, addToPath: null, command: 'node', banner: 'node' },
+};
+
 let work;
 let registry;
 
-// The test index: maven 3.9.16 and 3.10.1 on both platforms.
+// The test index: every version of TOOLS on both platforms.
 before(async () => {
   work = await mkdtemp(join(tmpdir(), 'infra-tools-action-'));
   registry = new FakeRegistry();
   await registry.start();
   const entries = [];
-  for (const version of ['3.9.16', '3.10.1']) {
-    for (const [platform, archFolder] of Object.entries(ARCH_FOLDERS)) {
-      const bytes = await mavenLayer(work, version, archFolder);
-      entries.push({
-        platform,
-        tool: 'maven',
-        version,
-        line: version.split('.').slice(0, 2).join('.'),
-        folderVersion: version,
-        revision: 1,
-        tag: `maven-${version}-r1`,
-        cacheFolder: 'maven',
-        archFolder,
-        addToPath: 'bin',
-        digest: registry.addBlob(bytes),
-        size: bytes.length,
-        mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip',
-      });
+  for (const [tool, { versions, cacheFolder, archFolders, addToPath, command, banner }] of Object.entries(TOOLS)) {
+    for (const version of versions) {
+      const folderVersion = version.replace('+', '-');
+      for (const [platform, archFolder] of Object.entries(archFolders)) {
+        const bytes = await toolLayer(work, { cacheFolder, folderVersion, archFolder, command, banner });
+        entries.push({
+          platform,
+          tool,
+          version,
+          line: version.split('.')[0],
+          folderVersion,
+          revision: 1,
+          tag: `${tool}-${folderVersion}-r1`,
+          cacheFolder,
+          archFolder,
+          addToPath,
+          digest: registry.addBlob(bytes),
+          size: bytes.length,
+          mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip',
+        });
+      }
     }
   }
   registry.addIndex('test-tools', entries);
@@ -63,7 +81,7 @@ after(async () => {
   await rm(work, { recursive: true, force: true });
 });
 
-const digestOf = (version, platform) => registry.indexEntries('test-tools').find((e) => e.version === version && e.platform === platform).digest;
+const digestOf = (version, platform) => registry.indexEntries('test-tools').find((e) => e.tool === 'maven' && e.version === version && e.platform === platform).digest;
 
 let runner;
 beforeEach(async () => {
@@ -75,7 +93,7 @@ beforeEach(async () => {
 });
 
 // Runs the action like the composite step of action.yml does, with the runner's environment.
-function action({ tools = '', env = {}, bash = 'bash', setup = SETUP } = {}) {
+function action({ tools = '', toolCacheTools = '', env = {}, bash = 'bash', setup = SETUP } = {}) {
   const files = { output: join(runner, 'output'), path: join(runner, 'path'), summary: join(runner, 'summary') };
   const child = spawn(bash, [setup], {
     env: {
@@ -90,6 +108,7 @@ function action({ tools = '', env = {}, bash = 'bash', setup = SETUP } = {}) {
       GITHUB_STEP_SUMMARY: files.summary,
       GITHUB_WORKSPACE: join(runner, 'workspace'),
       TOOLS: tools,
+      CACHE_TOOLS: toolCacheTools,
       TOKEN,
       INDEX: `${registry.host}/${REPOSITORY}:test-tools`,
       INFRA_TOOLS_REGISTRY_SCHEME: 'http',
@@ -117,6 +136,54 @@ test('a plain tool is installed into the tool cache, marked complete and put on 
   assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
   assert.deepEqual(result.path, [toolCache('maven/3.9.16/x64/bin')]);
   assert.equal(result.outputs.versions, '{"maven":"3.9.16"}');
+});
+
+test('a tool-cache tool is installed into the tool cache and marked complete, not put on PATH', async () => {
+  const result = await action({ toolCacheTools: 'java@21' });
+  assert.equal(result.status, 0, result.log);
+  assert.equal(execFileSync(toolCache('Java_Temurin-Hotspot_jdk/21.0.12-101.0.LTS/x64/bin/java'), { encoding: 'utf8' }), 'openjdk 21.0.12-101.0.LTS\n');
+  assert.ok(existsSync(toolCache('Java_Temurin-Hotspot_jdk/21.0.12-101.0.LTS/x64.complete')));
+  assert.deepEqual(result.path, []);
+  assert.equal(result.outputs.versions, '{"java":"21.0.12+101.0.LTS"}');
+});
+
+test('with several builds of one version, an exact build pin takes its build and a version selector the highest present', async () => {
+  const pinned = await action({ toolCacheTools: 'java@21.0.12+8.0.LTS' });
+  assert.equal(pinned.status, 0, pinned.log);
+  assert.equal(pinned.outputs.versions, '{"java":"21.0.12+8.0.LTS"}');
+  const other = await action({ toolCacheTools: 'java@21.0.12-101.0.LTS' });
+  assert.equal(other.status, 0, other.log);
+  assert.equal(other.outputs.versions, '{"java":"21.0.12+101.0.LTS"}');
+  assert.ok(existsSync(toolCache('Java_Temurin-Hotspot_jdk/21.0.12-8.0.LTS/x64.complete')));
+  assert.ok(existsSync(toolCache('Java_Temurin-Hotspot_jdk/21.0.12-101.0.LTS/x64.complete')));
+  registry.requests = [];
+  const present = await action({ toolCacheTools: 'java@21.0.12' });
+  assert.equal(present.outputs.versions, '{"java":"21.0.12+101.0.LTS"}');
+  assert.deepEqual(registry.requests, []);
+});
+
+test('plain and tool-cache tools are installed in one step, with their versions in one output', async () => {
+  const result = await action({ tools: 'maven@3.9', toolCacheTools: 'java@25\nnode@26', env: { RUNNER_ARCH: 'ARM64' } });
+  assert.equal(result.status, 0, result.log);
+  assert.deepEqual(JSON.parse(result.outputs.versions), { maven: '3.9.16', java: '25.0.3+9.0.LTS', node: '26.13.1' });
+  assert.ok(existsSync(toolCache('Java_Temurin-Hotspot_jdk/25.0.3-9.0.LTS/aarch64.complete')));
+  assert.ok(existsSync(toolCache('node/26.13.1/arm64.complete')));
+  assert.deepEqual(result.path, [toolCache('maven/3.9.16/arm64/bin')]);
+});
+
+test('a tool-cache tool listed under tools fails and names the tool-cache input, without a network call', async () => {
+  const result = await action({ tools: 'maven@3.9\njava@21' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.log, /::error::infra-tools: java is a tool-cache tool: list it under tool-cache, not tools, and keep its setup-\* step/);
+  assert.deepEqual(registry.requests, []);
+  assert.deepEqual(result.path, []);
+});
+
+test('a plain tool listed under tool-cache fails and names the tools input, without a network call', async () => {
+  const result = await action({ toolCacheTools: 'maven@3.9' });
+  assert.notEqual(result.status, 0);
+  assert.match(result.log, /::error::infra-tools: maven is a plain tool: list it under tools, not tool-cache/);
+  assert.deepEqual(registry.requests, []);
 });
 
 test('each tool gets one log line with its version, size, duration, speed and source registry', async () => {
