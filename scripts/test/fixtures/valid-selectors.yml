@@ -1,0 +1,20 @@
+---
+# A consumer workflow whose selectors are in the test index, for the validate mode test of ci.yml.
+name: Valid selectors
+
+on: push
+
+permissions: {}
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Install tools
+      uses: camunda/infra-tools@0000000000000000000000000000000000000000 # 1.0.0
+      with:
+        tools: |
+          maven@3.9
+          maven

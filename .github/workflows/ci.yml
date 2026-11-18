@@ -169,6 +169,7 @@ jobs:
       with:
         tools: maven@3
         index: ${{ env.INDEX }}
+        summary: true
 
     - name: Check maven is installed and on PATH
       env:
@@ -205,6 +206,59 @@ jobs:
         [[ "${PRESENT}" == "${INSTALLED}" ]]
         [[ "${UNKNOWN}" == failure ]]
 
+  action-validate:
+    name: Test action (validate mode)
+    permissions:
+      contents: read
+      packages: read # pull the index
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    # The workspace stands for a consumer repository: the action is checked out beside its workflows.
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        path: infra-tools
+
+    - name: Add a workflow with valid selectors
+      run: |
+        mkdir -p .github/workflows
+        cp infra-tools/scripts/test/fixtures/valid-selectors.yml .github/workflows/
+        ls -A "${RUNNER_TOOL_CACHE}" >"${RUNNER_TEMP}/tool-cache-before"
+        echo "PATH_BEFORE=${PATH}" >>"${GITHUB_ENV}"
+
+    - name: Validate valid selectors
+      id: valid
+      uses: ./infra-tools
+      with:
+        mode: validate
+        index: ${{ env.INDEX }}
+
+    - name: Check validate installs nothing and leaves PATH unchanged
+      env:
+        VERSIONS: ${{ steps.valid.outputs.versions }}
+      run: |
+        [[ "${VERSIONS}" == "{}" ]]
+        [[ "${PATH}" == "${PATH_BEFORE}" ]]
+        diff "${RUNNER_TEMP}/tool-cache-before" <(ls -A "${RUNNER_TOOL_CACHE}")
+
+    - name: Add a workflow with invalid selectors
+      run: cp infra-tools/scripts/test/fixtures/invalid-selectors.yml .github/workflows/
+
+    - name: Validate invalid selectors
+      id: invalid
+      continue-on-error: true
+      uses: ./infra-tools
+      with:
+        mode: validate
+        index: ${{ env.INDEX }}
+
+    - name: Check invalid selectors fail
+      env:
+        OUTCOME: ${{ steps.invalid.outcome }}
+      run: '[[ "${OUTCOME}" == failure ]]'
+
   action-macos:
     name: Test action (macos-latest)
     permissions:
@@ -238,6 +292,7 @@ jobs:
     - pr-plan
     - pr-dry-run
     - action-linux
+    - action-validate
     - action-macos
     runs-on: ubuntu-latest
     timeout-minutes: 5
