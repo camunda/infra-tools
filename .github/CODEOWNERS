@@ -1,6 +1,8 @@
-*                   @camunda/infrastructure
+# Deactivated for now: re-enable these rules in camunda/infra-tools#35.
+
+# *                   @camunda/infrastructure
 
 # Critical paths: require review from the infra maintenance DRI
-.github/CODEOWNERS  @camunda/infra-maintenance-dri
-.github/config/     @camunda/infra-maintenance-dri
-.github/workflows/  @camunda/infra-maintenance-dri
+# .github/CODEOWNERS  @camunda/infra-maintenance-dri
+# .github/config/     @camunda/infra-maintenance-dri
+# .github/workflows/  @camunda/infra-maintenance-dri
