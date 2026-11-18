@@ -18,8 +18,10 @@ export async function planTool(tool, { lookup = renovateLookup, tagExists, now =
     if (decision === 'publish' && missing.length) [decision, reason] = ['wait', `missing on ${missing.join(', ')}`];
     if (decision === 'publish' && reason === 'new') {
       const minAge = line.minAge ?? tool.publish.minAge;
+      // Some datasources (java-version, maven) give no release date: minAge cannot apply, and the reason says so.
       const released = Date.parse(releases.get(version).releaseTimestamp);
-      if (now - released < parseDuration(minAge)) [decision, reason] = ['wait', `released less than ${minAge} ago`];
+      if (Number.isNaN(released)) reason = 'new, no release date: minAge not applied';
+      else if (now - released < parseDuration(minAge)) [decision, reason] = ['wait', `released less than ${minAge} ago`];
     }
     if (decision !== 'publish') {
       versions.push({ version, decision, reason });

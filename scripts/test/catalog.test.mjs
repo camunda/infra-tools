@@ -41,3 +41,11 @@ test('build metadata is written as - in the folder version, and entries stay ord
   ], { now });
   assert.deepEqual(entries.map((e) => [e.version, e.folderVersion]), [['21.0.12+8.0.LTS', '21.0.12-8.0.LTS'], ['21.0.12+101.0.LTS', '21.0.12-101.0.LTS']]);
 });
+
+test('a version removed from retired is restored in the catalog', () => {
+  const retired = [{ version: '24.19.0', line: '24', folderVersion: '24.19.0', revision: 1, tag: 'node-24.19.0-r1', ...layout, publishedAt: now, retired: true }];
+  const restored = parseToolDefinition('node', { source: { datasource: 'node-version' }, publish: { lines: { 24: { from: '24.19.0' } } } });
+  const { entries, changes } = mergeCatalog(restored, retired, [], { now });
+  assert.deepEqual(entries, [{ version: '24.19.0', line: '24', folderVersion: '24.19.0', revision: 1, tag: 'node-24.19.0-r1', ...layout, publishedAt: now }]);
+  assert.deepEqual(changes, [{ type: 'feat', tool: 'node', text: 'restore 24.19.0' }]);
+});

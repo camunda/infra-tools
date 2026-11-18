@@ -26,10 +26,15 @@ export function mergeCatalog(tool, entries, published, { now = new Date().toISOS
       changes.push({ type: 'fix', tool: tool.name, text: `republish ${r.version} (r${r.revision})` });
     }
   }
+  // The retired flag follows the tool definition both ways: removing a version from retired restores it.
   for (const e of next) {
-    if (!e.retired && isRetired(tool, e.version)) {
+    const retired = isRetired(tool, e.version);
+    if (retired && !e.retired) {
       e.retired = true;
       changes.push({ type: 'feat', breaking: true, tool: tool.name, text: `retire ${e.version}` });
+    } else if (!retired && e.retired) {
+      delete e.retired;
+      changes.push({ type: 'feat', tool: tool.name, text: `restore ${e.version}` });
     }
   }
   return { entries: next.sort((a, b) => compareVersions(a.version, b.version)), changes };
