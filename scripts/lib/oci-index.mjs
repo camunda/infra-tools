@@ -1,16 +1,9 @@
 // The index as an OCI artifact (D3, ADR 0004): an image index with one artifact manifest per platform, whose layers are the
 // tool image layers, annotated with the tool version they hold. The action reads these annotations (scripts/action/setup.sh).
-import { createHash } from 'node:crypto';
+import { EMPTY_CONFIG, manifestBytes, MEDIA_TYPES, sha256 } from './oci.mjs';
 import { PLATFORMS } from './tool-definition.mjs';
 
-export const MEDIA_TYPES = {
-  index: 'application/vnd.oci.image.index.v1+json',
-  manifest: 'application/vnd.oci.image.manifest.v1+json',
-  empty: 'application/vnd.oci.empty.v1+json',
-};
 const ARTIFACT_TYPE = 'application/vnd.camunda.infra-tools.index.v1+json';
-// The empty config blob, `{}`.
-export const EMPTY_CONFIG = { mediaType: MEDIA_TYPES.empty, digest: 'sha256:44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a', size: 2 };
 
 const PREFIX = 'io.camunda.infra-tools';
 // Annotation key per index entry field; add-to-path is left out for tool-cache tools.
@@ -25,11 +18,6 @@ const ANNOTATIONS = {
   archFolder: 'arch-folder',
   addToPath: 'add-to-path',
 };
-
-// The bytes pushed for a manifest, which its digest and size are computed from.
-export const manifestBytes = (manifest) => Buffer.from(JSON.stringify(manifest));
-
-const sha256 = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 
 // Index entries (release.mjs buildIndex) to the image index and its manifests, keyed by digest.
 export function ociIndex(entries) {

@@ -1,7 +1,7 @@
 // Adding tool versions to an index in a registry (scripts/index.mjs), against the fake registry.
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { after, beforeEach, test } from 'node:test';
+import { sha256 } from '../lib/oci.mjs';
 import { publishIndex } from '../lib/publish-index.mjs';
 import { Registry } from '../lib/registry.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
@@ -12,7 +12,7 @@ const maven = parseToolDefinition('maven', {
   publish: { lines: { 3.9: { versions: ['3.9.16'], revisions: { '3.9.16': 2 } } } },
   install: { addToPath: 'bin' },
 });
-const digest = (text) => `sha256:${createHash('sha256').update(text).digest('hex')}`;
+const digest = (text) => sha256(Buffer.from(text));
 const layers = (name) => ({ 'linux/amd64': Buffer.from(`${name} amd64`), 'linux/arm64': Buffer.from(`${name} arm64`) });
 const summary = (entries) => entries.map((e) => `${e.platform} ${e.tool} ${e.version} r${e.revision} ${e.tag} ${e.archFolder} ${e.addToPath} ${e.digest}`).sort();
 

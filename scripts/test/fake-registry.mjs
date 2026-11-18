@@ -1,13 +1,12 @@
 // Fake OCI registry for tests, over http on 127.0.0.1: bearer token exchange as on ghcr.io (pull, or pull and push), manifests by
 // tag or digest, blobs and blob uploads. Records every request.
-import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
-import { indexEntries, MEDIA_TYPES, ociIndex } from '../lib/oci-index.mjs';
+import { MEDIA_TYPES, sha256 } from '../lib/oci.mjs';
+import { indexEntries, ociIndex } from '../lib/oci-index.mjs';
 
 export const REPOSITORY = 'camunda/infra-tools';
 export const TOKEN = 'job-token';
 
-const sha256 = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 const body = (req) =>
   new Promise((resolve) => {
     const chunks = [];

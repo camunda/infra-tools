@@ -1,15 +1,13 @@
 // Pushing the tested tool image (an OCI layout written by Bake) to the registry, against the fake registry.
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
+import { sha256 } from '../lib/oci.mjs';
 import { pushOciLayout } from '../lib/oci-layout.mjs';
 import { Registry } from '../lib/registry.mjs';
 import { FakeRegistry, TOKEN } from './fake-registry.mjs';
-
-const sha256 = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 
 // An OCI layout as Bake's oci exporter writes it: index.json → image index → one manifest per platform. Manifests are
 // pretty-printed, so a push that re-serializes them would change their digests.
