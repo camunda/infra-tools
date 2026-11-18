@@ -76,6 +76,12 @@ export class Registry {
     return res.json();
   }
 
+  // Digest of the manifest at a reference, from the bytes served.
+  async digest(reference) {
+    const res = await this.request(`/manifests/${reference}`, { headers: { Accept: ACCEPT } });
+    return sha256(Buffer.from(await res.arrayBuffer()));
+  }
+
   // Pushes a manifest by tag, or by its digest without one.
   async putManifest(manifest, tag) {
     const bytes = manifestBytes(manifest);
