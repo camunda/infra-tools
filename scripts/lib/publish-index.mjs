@@ -24,7 +24,8 @@ export async function publishIndex(registry, tag, toolVersions) {
   return { entries, digest: await registry.putManifest(index, tag) };
 }
 
-async function readIndex(registry, tag) {
+// The entries of the index at tag, [] when the tag is missing.
+export async function readIndex(registry, tag) {
   if (!(await registry.exists(tag))) return [];
   const index = await registry.manifest(tag);
   const manifests = {};
