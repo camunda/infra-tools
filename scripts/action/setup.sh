@@ -48,12 +48,15 @@ layout() {
     "${root}/tools/$1/tool.json"
 }
 
+# Set by connect(): the index's registry host, its API base URL, the authorization header and this platform's index layers.
+registry="" api="" auth=() layers=""
+
 # Logs in to the index's registry and reads the layers of this platform's manifest.
 connect() {
   [[ -n "${INDEX:-}" ]] || fail "no index to install from: set the index input"
   registry="${INDEX%%/*}"
   local repository="${INDEX#*/}" challenge realm service bearer digest
-  name="${repository%:*}"
+  local name="${repository%:*}"
   # INFRA_TOOLS_REGISTRY_SCHEME is for tests only (scripts/test/action.test.mjs serves a fake registry over http).
   api="${INFRA_TOOLS_REGISTRY_SCHEME:-https}://${registry}/v2/${name}"
   auth=()
