@@ -40,6 +40,6 @@ target "test" {
   inherits   = ["_args"]
   context    = "tools/${TOOL}"
   dockerfile = "../../build/test.Dockerfile"
-  contexts   = { tool = "oci-layout://${LAYOUT}" }
+  contexts   = { tool = "oci-layout://${LAYOUT}", build = "build" }
   output     = ["type=cacheonly"]
 }

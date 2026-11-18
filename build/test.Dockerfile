@@ -14,8 +14,9 @@ ARG CACHE_FOLDER
 ARG ARCH_FOLDERS
 # hadolint ignore=DL3022
 COPY --from=tool /opt/hostedtoolcache/ /opt/hostedtoolcache/
+# hadolint ignore=DL3022
+COPY --from=build --chmod=755 tool-dir /usr/local/bin/
 COPY --chmod=755 . /src/
-RUN ARCH="$(tr ' ' '\n' <<<"${ARCH_FOLDERS}" | sed -n "s/^${TARGETARCH}=//p")" \
-  && TOOL_DIR="/opt/hostedtoolcache/${CACHE_FOLDER}/${FOLDER_VERSION}/${ARCH}" \
+RUN TOOL_DIR="$(tool-dir)" \
   && test -f "${TOOL_DIR}.complete" \
   && VERSION="${VERSION}" TOOL_DIR="${TOOL_DIR}" /src/test.sh
