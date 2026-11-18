@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkPullRequest, previewComment, previewCommentUpdate } from '../lib/pull-request.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
+import { catalogEntry } from './catalog-entry.mjs';
 
 const now = Date.parse('2026-10-14T12:00:00Z');
 const old = '2026-10-01T00:00:00Z';
@@ -19,16 +20,6 @@ const upstreamOf = (versionsByDatasource, lookedUp = []) => async ({ datasource 
   return { releases: versionsByDatasource[datasource].map((version) => ({ version, releaseTimestamp: old })) };
 };
 const tagsIn = (...tags) => async (tag) => tags.includes(tag);
-// Catalog entry of one published tool version.
-const catalogEntry = (tool, version, revision, line) => ({
-  version,
-  line,
-  folderVersion: version.replaceAll('+', '-'),
-  revision,
-  tag: `${tool.name}-${version.replaceAll('+', '-')}-r${revision}`,
-  ...tool.install,
-  publishedAt: '2026-10-01T00:00:00.000Z',
-});
 
 const check = ({ plan, ...options }) => checkPullRequest({
   baseTools: {},

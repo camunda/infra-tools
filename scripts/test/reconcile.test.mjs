@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { checkCatalogTags, commitMessage, recordRun } from '../lib/reconcile.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
+import { catalogEntry } from './catalog-entry.mjs';
 
 const node = parseToolDefinition('node', {
   source: { datasource: 'node-version' },
@@ -9,18 +10,9 @@ const node = parseToolDefinition('node', {
 });
 const maven = parseToolDefinition('maven', { source: { datasource: 'maven' }, publish: { lines: { 3.9: { from: '3.9.16' } } }, install: { addToPath: 'bin' } });
 const now = '2026-10-14T00:00:00.000Z';
-const entry = (tool, version, revision, line) => ({
-  version,
-  line,
-  folderVersion: version,
-  revision,
-  tag: `${tool.name}-${version}-r${revision}`,
-  ...tool.install,
-  publishedAt: '2026-10-01T00:00:00.000Z',
-});
 
 test('a run records every version whose tool image exists and that the catalog lacks, and nothing else', () => {
-  const catalogs = { node: [entry(node, '24.19.0', 1, '24'), entry(node, '26.11.1', 1, '26')], maven: [entry(maven, '3.9.16', 1, '3.9')] };
+  const catalogs = { node: [catalogEntry(node, '24.19.0', 1, '24'), catalogEntry(node, '26.11.1', 1, '26')], maven: [catalogEntry(maven, '3.9.16', 1, '3.9')] };
   // The plans after the builds: 26.11.1 r2 and 26.11.2 were pushed by this run (or pushed by an earlier run that failed to
   // record them), 26.11.3 failed to build.
   const plans = {
@@ -58,7 +50,7 @@ test('a run records every version whose tool image exists and that the catalog l
 });
 
 test('a catalog version whose tag is gone fails the run instead of being published again', async () => {
-  const catalogs = { node: [{ ...entry(node, '24.19.0', 1, '24'), retired: true }, entry(node, '26.11.1', 1, '26')], maven: [entry(maven, '3.9.16', 1, '3.9')] };
+  const catalogs = { node: [{ ...catalogEntry(node, '24.19.0', 1, '24'), retired: true }, catalogEntry(node, '26.11.1', 1, '26')], maven: [catalogEntry(maven, '3.9.16', 1, '3.9')] };
   const tags = new Set(['node-26.11.1-r1', 'maven-3.9.16-r1']);
   await assert.rejects(checkCatalogTags({ catalogs, tagExists: async (tag) => tags.has(tag) }), {
     message: 'published versions lost their tag; published tool images never change:\nnode 24.19.0: tag node-24.19.0-r1 not found',
