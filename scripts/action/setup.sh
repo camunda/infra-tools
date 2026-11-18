@@ -126,7 +126,7 @@ if [[ "${MODE:-extract}" == validate ]]; then
   for file in .github/workflows/*.y*ml .github/actions/*/action.y*ml; do
     [[ -f "${file}" ]] || continue
     inputs="$(yq -r '.. | select(type == "!!map" and has("uses")) | select(.uses | test("^camunda/infra-tools@"))
-      | ("tools " + (.with.tools // "" | sub("\s+"; " "))), ("tool-cache " + (.with["tool-cache"] // "" | sub("\s+"; " ")))' \
+      | ("tools " + (.with.tools // "" | sub("\s+"; " ")), "tool-cache " + (.with["tool-cache"] // "" | sub("\s+"; " ")))' \
       "${file}" 2>&1)" || {
       echo "::error file=${file}::infra-tools: cannot read ${file}: ${inputs//$'\n'/ }"
       exit 1
