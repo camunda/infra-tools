@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Build-platform image where every tool is downloaded and installed (download, install-tool); never published.
-FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/ubuntu:24.04
+FROM --platform=$BUILDPLATFORM mirror.gcr.io/library/ubuntu:26.04
 # hadolint ignore=DL3008
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends ca-certificates curl jq unzip xz-utils \
