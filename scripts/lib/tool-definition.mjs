@@ -36,6 +36,7 @@ export function parseToolDefinition(name, json) {
   const { archFolders, addToPath } = tool.install;
   if (typeof archFolders?.amd64 !== 'string' || typeof archFolders?.arm64 !== 'string') fail('install.archFolders needs a folder for amd64 and arm64');
   if (addToPath !== null && typeof addToPath !== 'string') fail('install.addToPath is a folder name');
+  if (typeof tool.publish.minAge !== 'string') fail('publish.minAge is a duration string (e.g. "1 day")');
   check(fail, 'publish.minAge', () => parseDuration(tool.publish.minAge));
   validateLines(tool, fail);
   return tool;
@@ -81,6 +82,10 @@ function validateLines(tool, fail) {
     }
     // A line without these keeps nothing: reason documents, ignoredVersions only matters next to from.
     if (key !== ANY && !['from', 'versions', 'revisions', 'retired'].some((o) => line[o] !== undefined)) lineFail('empty line; delete it, or set from, versions, revisions or retired');
+    // JSON numbers would lose precision silently ("from": 1.10 is 1.1).
+    if (line.from !== undefined && typeof line.from !== 'string') lineFail('from is a version string');
+    if (line.reason !== undefined && typeof line.reason !== 'string') lineFail('reason is a string');
+    if (line.minAge !== undefined && typeof line.minAge !== 'string') lineFail('minAge is a duration string (e.g. "1 day")');
     if (line.minAge !== undefined) check(lineFail, 'minAge', () => parseDuration(line.minAge));
     if (line.retired === 'all') {
       if (key === ANY) lineFail('"retired": "all" is not allowed on "*"; give its versions a line first');
@@ -98,7 +103,7 @@ function validateLines(tool, fail) {
       if (!line.from) lineFail('"*" needs from');
       if (line.versions) lineFail('"*" cannot have versions; pin them in their own line');
     }
-    if (line.from !== undefined && key !== ANY && !inLine(String(line.from), key)) lineFail(`from ${line.from} is not in line ${key}`);
+    if (line.from !== undefined && key !== ANY && !inLine(line.from, key)) lineFail(`from ${line.from} is not in line ${key}`);
     const named = [
       ...['versions', 'ignoredVersions', 'retired'].flatMap((option) => (line[option] ?? []).map((version) => [option, version])),
       ...revisions.map(([version]) => ['revisions', version]),

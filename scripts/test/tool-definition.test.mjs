@@ -39,6 +39,7 @@ test('install options are checked', () => {
   rejects({ source, publish: { lines }, install: { archFolders: { amd64: 'x64' } } }, 'tools/jq/tool.json: install.archFolders needs a folder for amd64 and arm64');
   rejects({ source, publish: { lines }, install: { addToPath: true } }, 'tools/jq/tool.json: install.addToPath is a folder name');
   rejects({ source, publish: { lines, minAge: 'soon' } }, 'tools/jq/tool.json: publish.minAge: invalid duration soon (e.g. "1 day", "6 hours")');
+  rejects({ source, publish: { lines, minAge: 1 } }, 'tools/jq/tool.json: publish.minAge is a duration string (e.g. "1 day")');
 });
 
 test('version lines are validated (D41)', () => {
@@ -56,6 +57,9 @@ test('version lines are validated (D41)', () => {
   bad({ 21: { retired: ['17.0.1'] } }, 'publish.lines.21: retired 17.0.1 is not in line 21');
   bad({ 21: { from: '21.0.12', versions: ['21.0.12+8'] } }, 'publish.lines.21: versions 21.0.12+8 is at or above from 21.0.12; from already publishes it');
   bad({ 21: { versions: '21.0.1' } }, 'publish.lines.21: versions is a list of versions');
+  bad({ 1.1: { from: 1.10 } }, 'publish.lines.1.1: from is a version string');
+  bad({ 21: { from: '21.0.12', minAge: 6 } }, 'publish.lines.21: minAge is a duration string (e.g. "1 day")');
+  bad({ 21: { from: '21.0.12', reason: ['a', 'b'] } }, 'publish.lines.21: reason is a string');
   bad({ 21: { revisions: { '21.0.1': 0 } } }, 'publish.lines.21: revisions maps a version to a revision number from 1');
   bad({ 21: { retired: 'some' } }, 'publish.lines.21: retired is a list of versions or "all"');
   bad({ 21: { retired: 'all', from: '21.0.12' } }, 'publish.lines.21: "retired": "all" excludes from');
