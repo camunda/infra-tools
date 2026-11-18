@@ -160,3 +160,10 @@ test('a version without a release date cannot wait for minAge: it is published a
   const plan = await planTool(java({ '*': { from: '27.0.0' } }), { lookup, tagExists: noTags, now });
   assert.deepEqual(decisions(plan), ['27.0.1+0: publish (new, no release date: minAge not applied)']);
 });
+
+test('the plan links the upstream project, its source repository first, for the tool releases', async () => {
+  const plan = (result) => planTool(java({ '*': { from: '27.0.0' } }), { lookup: async () => ({ releases: [{ version: '27.0.0+35', releaseTimestamp: old }], ...result }), tagExists: noTags, now });
+  assert.equal((await plan({ sourceUrl: 'https://github.com/adoptium/jdk', homepage: 'https://adoptium.net' })).upstream, 'https://github.com/adoptium/jdk');
+  assert.equal((await plan({ homepage: 'https://adoptium.net' })).upstream, 'https://adoptium.net');
+  assert.equal((await plan({})).upstream, null);
+});
