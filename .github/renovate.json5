@@ -45,6 +45,14 @@
   },
   packageRules: [
     {
+      // The test image runs tools on the Ubuntu release of the runners (spec §5.2); the builder image follows it.
+      // Move both when GitHub-hosted runners move to the next release.
+      description: "Ubuntu base images: stay on the runners' release",
+      matchFileNames: ["build/**"],
+      matchPackageNames: ["mirror.gcr.io/library/ubuntu"],
+      allowedVersions: "/^24\\.04$/",
+    },
+    {
       description: "Labeling: GitHub Actions PRs",
       matchManagers: ["github-actions"],
       addLabels: ["group:github-actions", "component:ci"],
