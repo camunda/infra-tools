@@ -353,6 +353,13 @@ test('mode: validate fails on an unknown tool', async () => {
   assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: unknown tool 'mavne'; tools: .*\bmaven\b/m);
 });
 
+test('an unknown mode fails rather than installing', async () => {
+  const result = await action({ tools: 'maven@3.9', env: { MODE: 'valdiate' } });
+  assert.notEqual(result.status, 0);
+  assert.match(result.log, /^::error::infra-tools: unknown mode 'valdiate': use extract or validate$/m);
+  assert.deepEqual(registry.requests, []);
+});
+
 test('mode: validate fails on a workflow it cannot read', async () => {
   await repositoryFile('.github/workflows/ci.yml', 'jobs: [\n');
   const result = await validate();

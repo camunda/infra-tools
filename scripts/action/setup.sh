@@ -118,6 +118,7 @@ install_layer() {
 # mode: validate checks the selectors of the tools and tool-cache inputs of every infra-tools step in the repository's
 # workflows and local actions against the index on every platform, so an invalid one fails before merge; it installs
 # nothing. Each invalid selector gets an error annotation on its file.
+[[ "${MODE:-extract}" =~ ^(extract|validate)$ ]] || fail "unknown mode '${MODE}': use extract or validate"
 if [[ "${MODE:-extract}" == validate ]]; then
   echo "versions={}" >>"${GITHUB_OUTPUT}"
   command -v yq >/dev/null || fail "mode: validate needs yq"
