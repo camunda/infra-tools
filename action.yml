@@ -7,6 +7,10 @@ inputs:
     description: >-
       Plain tools, one selector per line (`<tool>[@<version prefix>]`, e.g. `maven@3`), resolved to the highest matching version; present tools are not downloaded.
     default: ''
+  tool-cache:
+    description: >-
+      Tool-cache tools, one selector per line (e.g. `java@21`, `node@26`), only placed in the tool cache: keep their setup-* step, given the version from `versions`.
+    default: ''
   mode:
     description: >-
       `extract` installs the selected tools; `validate` checks the selectors of the repository's workflows and local actions against the index, installing nothing (needs yq).
@@ -25,7 +29,7 @@ inputs:
 outputs:
   versions:
     description: >-
-      Resolved version per selected tool, as JSON (`{"maven":"3.9.16"}`); `{}` when nothing is installed.
+      Resolved version per selected tool, as JSON (`{"java":"21.0.13+9.0.LTS","maven":"3.9.16"}`) in the form setup-* actions expect; `{}` when nothing is installed.
     value: ${{ steps.setup.outputs.versions }}
 
 runs:
@@ -36,6 +40,7 @@ runs:
     shell: bash
     env:
       TOOLS: ${{ inputs.tools }}
+      CACHE_TOOLS: ${{ inputs.tool-cache }}
       MODE: ${{ inputs.mode }}
       TOKEN: ${{ inputs.token }}
       INDEX: ${{ inputs.index }}

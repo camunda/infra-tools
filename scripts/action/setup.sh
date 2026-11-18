@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The action (action.yml): installs the selected tools from the index into the tool cache, and puts plain tools on PATH.
-# Inputs come from the environment: TOOLS (selectors), MODE (`extract` or `validate`), TOKEN (registry token), INDEX
-# (<registry>/<repository>:<tag>) and SUMMARY (`true`: table of the selected tools in the job summary).
+# Inputs come from the environment: TOOLS (plain tool selectors), CACHE_TOOLS (tool-cache tool selectors), MODE (`extract`
+# or `validate`), TOKEN (registry token), INDEX (<registry>/<repository>:<tag>) and SUMMARY (`true`: table of the selected
+# tools in the job summary).
 # Requires bash 5, curl, jq, tar and sha256sum on Linux; yq for MODE=validate.
 set -euo pipefail
 
@@ -184,15 +185,28 @@ if [[ "${MODE:-extract}" == validate ]]; then
   exit "${failed}"
 fi
 
-mapfile -t selectors < <(tr -s ' \t\r\n' '\n' <<<"${TOOLS:-}" | sed '/^$/d')
+# "<input> <selector>" for each selector, plain tools first.
+mapfile -t listed < <(
+  tr -s ' \t\r\n' '\n' <<<"${TOOLS:-}" | sed '/^$/d; s/^/tools /'
+  tr -s ' \t\r\n' '\n' <<<"${CACHE_TOOLS:-}" | sed '/^$/d; s/^/tool-cache /'
+)
+selectors=()
 declare -A want folder arch_folder add_path home version detail
 missing=()
-for selector in "${selectors[@]}"; do
+for entry in "${listed[@]}"; do
+  input="${entry%% *}" selector="${entry#* }"
+  selectors+=("${selector}")
   tool="${selector%%@*}"
   want["${selector}"]=""
   [[ "${selector}" == *@* ]] && want["${selector}"]="${selector#*@}"
   [[ -f "${root}/tools/${tool}/tool.json" ]] || fail "unknown tool '${tool}'; tools: $(cd "${root}/tools" && echo *)"
   IFS=$'\t' read -r folder["${selector}"] arch_folder["${selector}"] add_path["${selector}"] < <(layout "${tool}")
+  # The tool definition decides the input (ADR 0006): with addToPath, a plain tool; without, a tool-cache tool.
+  if [[ -n "${add_path[${selector}]}" && "${input}" != tools ]]; then
+    fail "${tool} is a plain tool: list it under tools, not ${input}"
+  elif [[ -z "${add_path[${selector}]}" && "${input}" != tool-cache ]]; then
+    fail "${tool} is a tool-cache tool: list it under tool-cache, not ${input}, and keep its setup-* step"
+  fi
   present=()
   for complete in "${tool_cache}/${folder[${selector}]}"/*/"${arch_folder[${selector}]}.complete"; do
     [[ -f "${complete}" ]] && present+=("$(basename "$(dirname "${complete}")")")
