@@ -153,3 +153,9 @@ test('pinned versions and revisions must exist upstream', async () => {
     message: 'java: not found upstream: 21.0.10+7, 21.0.11+9',
   });
 });
+
+test('a version without a release date cannot wait for minAge: it is published and the reason says so', async () => {
+  const lookup = async () => ({ releases: [{ version: '27.0.1+0' }] });
+  const plan = await planTool(java({ '*': { from: '27.0.0' } }), { lookup, tagExists: noTags, now });
+  assert.deepEqual(decisions(plan), ['27.0.1+0: publish (new, no release date: minAge not applied)']);
+});
