@@ -171,6 +171,38 @@ test('plain and tool-cache tools are installed in one step, with their versions 
   assert.deepEqual(result.path, [toolCache('maven/3.9.16/arm64/bin')]);
 });
 
+// A repository using the Maven wrapper (only-script, as camunda/camunda): ./mvnw runs
+// $MAVEN_USER_HOME/wrapper/dists/<distribution>/<Java String.hashCode of distributionUrl, hex>/bin/mvn when it exists.
+async function wrapperWorkspace(version) {
+  const workspace = join(runner, 'workspace');
+  await mkdir(join(workspace, '.mvn/wrapper'), { recursive: true });
+  const url = `https://repo.maven.apache.org/maven2/org/apache/maven/apache-maven/${version}/apache-maven-${version}-bin.zip`;
+  await writeFile(join(workspace, '.mvn/wrapper/maven-wrapper.properties'), `wrapperVersion=3.3.4\r\ndistributionType=only-script\r\ndistributionUrl=${url}\r\n`);
+  return workspace;
+}
+
+test('./mvnw uses the installed maven when the wrapper asks for the same version', async () => {
+  const result = await action({ tools: 'maven@3.9', env: { GITHUB_WORKSPACE: await wrapperWorkspace('3.9.16') } });
+  assert.equal(result.status, 0, result.log);
+  assert.equal(execFileSync(join(runner, '.m2/wrapper/dists/apache-maven-3.9.16/56ba1f9f/bin/mvn'), { encoding: 'utf8' }), 'Apache Maven 3.9.16\n');
+});
+
+test('./mvnw finds the installed maven under MAVEN_USER_HOME, also when maven was already present', async () => {
+  const workspace = await wrapperWorkspace('3.9.16');
+  await action({ tools: 'maven@3.9' });
+  const result = await action({ tools: 'maven@3.9', env: { GITHUB_WORKSPACE: workspace, MAVEN_USER_HOME: join(runner, 'm2') } });
+  assert.equal(result.status, 0, result.log);
+  assert.match(result.log, /^maven@3\.9: 3\.9\.16 cached/m);
+  assert.equal(execFileSync(join(runner, 'm2/wrapper/dists/apache-maven-3.9.16/56ba1f9f/bin/mvn'), { encoding: 'utf8' }), 'Apache Maven 3.9.16\n');
+});
+
+test('a wrapper asking for another maven version is left to download it', async () => {
+  const result = await action({ tools: 'maven@3.9', env: { GITHUB_WORKSPACE: await wrapperWorkspace('3.9.11') } });
+  assert.equal(result.status, 0, result.log);
+  assert.ok(!existsSync(join(runner, '.m2/wrapper')));
+  assert.match(result.log, /::notice::infra-tools: \.mvn\/wrapper asks for maven 3\.9\.11, not the installed 3\.9\.16: \.\/mvnw downloads it/);
+});
+
 test('a tool-cache tool listed under tools fails and names the tool-cache input, without a network call', async () => {
   const result = await action({ tools: 'maven@3.9\njava@21' });
   assert.notEqual(result.status, 0);
