@@ -177,7 +177,7 @@ Runs on a schedule, on push to `main` and on demand; one run at a time (`concurr
 
 Scripts (`scripts/`): `plan.mjs` (1, 6), `build.mjs` (2, push), `publish.mjs` (tool releases), `record.mjs` (4), `fix-pr.mjs` (5).
 
-Safeguards: never overwrite a tag; fail when a version of the catalog lost its tag; datasource or registry outages fail the run (never read as "no versions"); retention policies exclude `*-r*` tags.
+Safeguards: never overwrite a tag; fail when a version of the catalog lost its tag; fail when a version in a line's `versions` or `revisions` is not found upstream (a typo or a delisted version); datasource or registry outages fail the run (never read as "no versions"); retention policies exclude `*-r*` tags.
 
 ### 5.4 Pull requests
 
