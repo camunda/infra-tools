@@ -96,6 +96,7 @@ install_layer() {
     sleep "${attempt}"
   done
   rm -rf "${target}" "${target}.complete"
+  mkdir -p "${tool_cache}"
   tar xzf "${file}" -C "${tool_cache}" --strip-components=2 --exclude='*.complete'
   rm -f "${file}"
   [[ -d "${target}" ]] || fail "${tool}: layer ${digest} does not hold ${target#"${tool_cache}"/}"

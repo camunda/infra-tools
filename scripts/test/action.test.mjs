@@ -220,3 +220,10 @@ test('an unreachable registry fails with a clear message', async () => {
   assert.notEqual(result.status, 0);
   assert.match(result.log, /::error::infra-tools: cannot reach 127\.0\.0\.1:1/);
 });
+
+test('a missing tool cache folder is created', async () => {
+  await rm(toolCache(), { recursive: true });
+  const result = await action({ tools: 'maven@3.9' });
+  assert.equal(result.status, 0, result.log);
+  assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
+});
