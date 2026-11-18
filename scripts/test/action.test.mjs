@@ -72,9 +72,9 @@ beforeEach(async () => {
 });
 
 // Runs the action like the composite step of action.yml does, with the runner's environment.
-function action({ tools = '', env = {} } = {}) {
+function action({ tools = '', env = {}, bash = 'bash' } = {}) {
   const files = { output: join(runner, 'output'), path: join(runner, 'path') };
-  const child = spawn('bash', [SETUP], {
+  const child = spawn(bash, [SETUP], {
     env: {
       PATH: process.env.PATH,
       HOME: runner,
@@ -200,8 +200,9 @@ test('an arm64 runner installs the arm64 layer into its arch folder', async () =
   assert.deepEqual(result.path, [toolCache('maven/3.9.16/arm64/bin')]);
 });
 
+// macOS runners run the action with their bash 3.2 (/bin/bash on macOS; bash 5 elsewhere).
 test('a non-Linux runner installs nothing and succeeds', async () => {
-  const result = await action({ tools: 'maven@3', env: { RUNNER_OS: 'macOS' } });
+  const result = await action({ tools: 'maven@3', env: { RUNNER_OS: 'macOS' }, bash: '/bin/bash' });
   assert.equal(result.status, 0, result.log);
   assert.equal(result.outputs.versions, '{}');
   assert.match(result.log, /::notice::infra-tools: macOS runners are not supported, nothing installed/);
