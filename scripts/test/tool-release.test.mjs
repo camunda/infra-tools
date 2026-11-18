@@ -16,9 +16,9 @@ const layers = {
   'linux/arm64': { digest: 'sha256:bbb', size: 196083302, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' },
   'linux/amd64': { digest: 'sha256:aaa', size: 197132288, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' },
 };
-const release = (tool, published) => toolRelease({
+const release = (tool, recorded) => toolRelease({
   tool,
-  published: { tool: tool.name, line: '*', revision: 1, upstream: null, ...published },
+  recorded: { tool: tool.name, line: '*', revision: 1, upstream: null, ...recorded },
   layers,
   digest: 'sha256:index',
   image: 'ghcr.io/camunda/infra-tools',

@@ -1,5 +1,5 @@
 // Usage: node publish.mjs --image <registry>/<repository> --repository <owner>/<name> --commit <sha> [--out <dir>]
-// Reconciler tool releases (spec §5.3, step 3; §5.5): creates the tool release of every tool version in <out>/published.json
+// Reconciler tool releases (spec §5.3, step 3; §5.5): creates the tool release of every tool version in <out>/tool-releases.json
 // (record.mjs; default build/out/reconcile), tagged on --commit, the commit its layers were built from (lib/tool-release.mjs).
 // A tool release that exists is left as it is. Uses the GitHub token in GH_TOKEN or GITHUB_TOKEN.
 import { readFile } from 'node:fs/promises';
@@ -35,8 +35,8 @@ async function github(method, path, { body, allow404 = false } = {}) {
 }
 
 const registry = new Registry(values.image);
-const published = JSON.parse(await readFile(join(values.out, 'published.json'), 'utf8'));
-for (const p of published) {
+const toolReleases = JSON.parse(await readFile(join(values.out, 'tool-releases.json'), 'utf8'));
+for (const p of toolReleases) {
   const existing = await github('GET', `/releases/tags/${encodeURIComponent(p.tag)}`, { allow404: true });
   if (existing) {
     console.log(`${p.tag}: tool release exists, ${existing.html_url}`);
@@ -44,7 +44,7 @@ for (const p of published) {
   }
   const release = toolRelease({
     tool: await readToolDefinition(p.tool),
-    published: p,
+    recorded: p,
     layers: await registry.toolImageLayers(p.tag),
     digest: await registry.digest(p.tag),
     image: values.image,

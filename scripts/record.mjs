@@ -1,8 +1,8 @@
 // Usage: node record.mjs --image <registry>/<repository> [--out <dir>]
 // Reconciler record (spec §5.3, step 4), once the run's builds are pushed: plans every tool again against upstream and the
 // published tags in --image, and records every published version the catalog lacks (lib/reconcile.mjs recordRun). Writes
-// published/<tool>.json, and in <out> (default build/out/reconcile): published.json, the tool versions that need a tool release
-// (publish.mjs), and commit.txt, the record commit message, empty when nothing changed.
+// published/<tool>.json, and in <out> (default build/out/reconcile): tool-releases.json, the tool versions that need a tool
+// release (publish.mjs), and commit.txt, the record commit message, empty when nothing changed.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -30,7 +30,7 @@ for (const tool of tools) {
   if (JSON.stringify(entries) !== JSON.stringify(catalogs[tool.name])) await writeCatalog(tool.name, entries);
 }
 await mkdir(values.out, { recursive: true });
-await writeFile(join(values.out, 'published.json'), `${JSON.stringify(run.published, null, 2)}\n`);
+await writeFile(join(values.out, 'tool-releases.json'), `${JSON.stringify(run.toolReleases, null, 2)}\n`);
 const message = commitMessage(run.changes);
 await writeFile(join(values.out, 'commit.txt'), message);
 console.log(message ? `recorded:\n${message}` : 'nothing to record');

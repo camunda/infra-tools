@@ -5,10 +5,10 @@ import { folderVersion } from './versions.mjs';
 
 const MB = 1024 * 1024;
 
-// published: a recorded tool version (lib/reconcile.mjs recordRun). layers: its layer per platform (Registry.toolImageLayers);
+// recorded: a recorded tool version that needs its tool release (lib/reconcile.mjs recordRun toolReleases). layers: its layer per platform (Registry.toolImageLayers);
 // digest: its image digest; image: <registry>/<repository> it is pushed to; repository: owner/name; commit: the build commit.
 // Returns the GitHub REST API fields of the release.
-export function toolRelease({ tool, published: p, layers, digest, image, repository, commit }) {
+export function toolRelease({ tool, recorded: p, layers, digest, image, repository, commit }) {
   const plain = isPlainTool(tool);
   const rows = PLATFORMS.map((platform) => {
     const { digest: layer, size } = layers[platform];
