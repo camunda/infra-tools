@@ -1,4 +1,5 @@
-// Index (spec §5.5, D3): every tool version of a release per platform, with its layer and tool cache layout.
+// Release (spec §5.5): its index (D3), every tool version per platform with its layer and tool cache layout, and its
+// release notes (D20).
 import { archOf, isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions } from './versions.mjs';
 
@@ -9,8 +10,8 @@ const keyOf = (e) => `${e.platform}|${versionKey(e)}`;
 // Index = previous index + catalog entries − retired versions. layers maps each catalog tag to its layer per platform
 // ({ 'linux/amd64': { digest, size, mediaType } }). Throws when a catalog version lost its tag or a layer, or when a layer
 // changed without a higher revision (published tool images never change, R7).
-export function buildIndex({ tools, catalogs, previous, layers }) {
-  const merged = new Map(previous.map((e) => [keyOf(e), e]));
+export function buildIndex({ tools, catalogs, previousIndex, layers }) {
+  const merged = new Map(previousIndex.map((e) => [keyOf(e), e]));
   const retired = new Set();
   const errors = [];
   for (const tool of tools) {
@@ -31,7 +32,7 @@ export function buildIndex({ tools, catalogs, previous, layers }) {
           errors.push(`${name}: tag ${entry.tag} has no layer for ${platform}`);
           continue;
         }
-        const next = {
+        const indexEntry = {
           platform,
           tool: tool.name,
           version: entry.version,
@@ -46,12 +47,12 @@ export function buildIndex({ tools, catalogs, previous, layers }) {
           size: layer.size,
           mediaType: layer.mediaType,
         };
-        const old = merged.get(keyOf(next));
-        if (old && old.digest !== next.digest && next.revision <= old.revision) {
-          errors.push(`${name} (${platform}): layer changed without a higher revision (r${old.revision} → r${next.revision})`);
+        const old = merged.get(keyOf(indexEntry));
+        if (old && old.digest !== indexEntry.digest && indexEntry.revision <= old.revision) {
+          errors.push(`${name} (${platform}): layer changed without a higher revision (r${old.revision} → r${indexEntry.revision})`);
           continue;
         }
-        merged.set(keyOf(next), next);
+        merged.set(keyOf(indexEntry), indexEntry);
       }
     }
   }
@@ -74,23 +75,23 @@ function diffIndex(before, after) {
     }
     return versions;
   };
-  const [old, next] = [byVersion(before), byVersion(after)];
+  const [oldVersions, newVersions] = [byVersion(before), byVersion(after)];
   const changes = { added: [], replaced: [], retired: [] };
-  for (const [key, item] of next) {
-    const previous = old.get(key);
-    if (!previous) changes.added.push(item);
-    else if (JSON.stringify(previous.digests) !== JSON.stringify(item.digests)) changes.replaced.push({ ...item, previousRevision: previous.revision });
+  for (const [key, item] of newVersions) {
+    const old = oldVersions.get(key);
+    if (!old) changes.added.push(item);
+    else if (JSON.stringify(old.digests) !== JSON.stringify(item.digests)) changes.replaced.push({ ...item, previousRevision: old.revision });
   }
-  for (const [key, item] of old) if (!next.has(key)) changes.retired.push(item);
+  for (const [key, item] of oldVersions) if (!newVersions.has(key)) changes.retired.push(item);
   return changes;
 }
 
 // Release notes of release `version`: the Added / Replaced / Retired tables against the previous index (D20).
-export function releaseNotes({ version, previous, repository, before, after }) {
+export function releaseNotes({ version, previousVersion, repository, before, after }) {
   const changes = diffIndex(before, after);
   const link = (i) => `[${i.tag}](https://github.com/${repository}/releases/tag/${i.tag})`;
   const arches = (i) => i.platforms.map(archOf).sort().join(', ');
-  const out = [`Index: \`${version}-tools\`${previous ? `, previous: \`${previous}-tools\`` : ''}`, ''];
+  const out = [`Index: \`${version}-tools\`${previousVersion ? `, previous: \`${previousVersion}-tools\`` : ''}`, ''];
   const table = (title, header, rows) => {
     if (!rows.length) return;
     out.push(`### ${title}`, '', `| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.join(' | ')} |`), '');

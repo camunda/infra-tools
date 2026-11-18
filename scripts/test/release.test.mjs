@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, releaseNotes } from '../lib/index.mjs';
+import { buildIndex, releaseNotes } from '../lib/release.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const java = parseToolDefinition('java', {
@@ -27,7 +27,7 @@ test('the index lists every catalog version per platform with its layer and tool
   const entries = buildIndex({
     tools: [java, maven],
     catalogs: { java: [catalogEntry(java, '21.0.12+8', 1, { line: '21' })], maven: [catalogEntry(maven, '3.9.16', 1)] },
-    previous: [],
+    previousIndex: [],
     layers: { 'java-21.0.12-8-r1': layersOf('j'), 'maven-3.9.16-r1': layersOf('m') },
   });
   assert.deepEqual(entries[0], {
@@ -47,7 +47,7 @@ test('the index keeps previous versions, takes new revisions and drops retired v
   const previous = buildIndex({
     tools: [parseToolDefinition('java', { source: { datasource: 'java-version' }, publish: { lines: { 17: { from: '17.0.18' }, 21: { from: '21.0.12' } } } }), maven],
     catalogs: { java: [catalogEntry(java, '17.0.18+8', 1, { line: '17' }), catalogEntry(java, '21.0.12+8', 1, { line: '21' })], maven: [catalogEntry(maven, '3.9.15', 1)] },
-    previous: [],
+    previousIndex: [],
     layers: previousLayers,
   });
   const before = structuredClone(previous);
@@ -57,7 +57,7 @@ test('the index keeps previous versions, takes new revisions and drops retired v
       java: [catalogEntry(java, '17.0.18+8', 1, { line: '17', retired: true }), catalogEntry(java, '21.0.12+8', 2, { line: '21' })],
       maven: [],
     },
-    previous,
+    previousIndex: previous,
     layers: { 'java-21.0.12-8-r2': layersOf('n21') },
   });
   assert.deepEqual(entries.map((e) => `${e.tool} ${e.version} r${e.revision} ${e.digest}`), [
@@ -70,12 +70,12 @@ test('the index keeps previous versions, takes new revisions and drops retired v
 });
 
 test('a catalog version without its tag or a platform layer, or a changed layer without a higher revision, fails the index', () => {
-  const build = (catalog, layers, previous = []) => () => buildIndex({ tools: [maven], catalogs: { maven: catalog }, previous, layers });
+  const build = (catalog, layers, previous = []) => () => buildIndex({ tools: [maven], catalogs: { maven: catalog }, previousIndex: previous, layers });
   assert.throws(build([catalogEntry(maven, '3.9.16', 1)], {}), { message: 'maven 3.9.16: tag maven-3.9.16-r1 not found' });
   assert.throws(build([catalogEntry(maven, '3.9.16', 1)], { 'maven-3.9.16-r1': { 'linux/amd64': layer('sha256:a') } }), {
     message: 'maven 3.9.16: tag maven-3.9.16-r1 has no layer for linux/arm64',
   });
-  const previous = buildIndex({ tools: [maven], catalogs: { maven: [catalogEntry(maven, '3.9.16', 1)] }, previous: [], layers: { 'maven-3.9.16-r1': layersOf('old') } });
+  const previous = buildIndex({ tools: [maven], catalogs: { maven: [catalogEntry(maven, '3.9.16', 1)] }, previousIndex: [], layers: { 'maven-3.9.16-r1': layersOf('old') } });
   assert.throws(build([catalogEntry(maven, '3.9.16', 1)], { 'maven-3.9.16-r1': layersOf('new') }, previous), {
     message: 'maven 3.9.16 (linux/amd64): layer changed without a higher revision (r1 → r1)\nmaven 3.9.16 (linux/arm64): layer changed without a higher revision (r1 → r1)',
   });
@@ -89,7 +89,7 @@ const both = (tool, version, revision, digest, line) => ['linux/amd64', 'linux/a
 test('release notes list added, replaced and retired versions once per version, with tool release links (D20)', () => {
   const before = [...both('node', '24.19.0', 1, 'a', '24'), ...both('node', '26.11.1', 1, 'b', '26'), ...both('maven', '3.9.16', 1, 'm')];
   const after = [...both('node', '26.11.1', 2, 'c', '26'), ...both('node', '26.11.2', 1, 'd', '26'), ...both('maven', '3.9.16', 1, 'm')];
-  assert.equal(releaseNotes({ version: '0.2.0', previous: '0.1.0', repository: 'camunda/infra-tools', before, after }), [
+  assert.equal(releaseNotes({ version: '0.2.0', previousVersion: '0.1.0', repository: 'camunda/infra-tools', before, after }), [
     'Index: `0.2.0-tools`, previous: `0.1.0-tools`',
     '',
     '### ➕ Added',
@@ -117,7 +117,7 @@ test('the first release has no previous index, and a release without tool change
   const after = both('maven', '3.9.16', 1, 'm');
   assert.match(releaseNotes({ version: '0.1.0', repository: 'camunda/infra-tools', before: [], after }), /^Index: `0\.1\.0-tools`\n\n### ➕ Added\n/);
   assert.equal(
-    releaseNotes({ version: '0.1.1', previous: '0.1.0', repository: 'camunda/infra-tools', before: after, after }),
+    releaseNotes({ version: '0.1.1', previousVersion: '0.1.0', repository: 'camunda/infra-tools', before: after, after }),
     'Index: `0.1.1-tools`, previous: `0.1.0-tools`\n\nNo tool changes.\n',
   );
 });

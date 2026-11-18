@@ -5,29 +5,29 @@ import { compareVersions, folderVersion } from './versions.mjs';
 // Merges published results ({ version, line, revision, tag }) and the tool's retirements into its catalog entries.
 // Returns the new entries and one conventional change per version for the record commit (spec §5.3, step 4).
 export function mergeCatalog(tool, entries, published, { now = new Date().toISOString() } = {}) {
-  const next = entries.map((e) => ({ ...e }));
+  const merged = entries.map((e) => ({ ...e }));
   const changes = [];
-  for (const r of published) {
+  for (const result of published) {
     const entry = {
-      version: r.version,
-      line: r.line,
-      folderVersion: folderVersion(r.version),
-      revision: r.revision,
-      tag: r.tag,
+      version: result.version,
+      line: result.line,
+      folderVersion: folderVersion(result.version),
+      revision: result.revision,
+      tag: result.tag,
       ...tool.install,
       publishedAt: now,
     };
-    const i = next.findIndex((e) => e.version === r.version);
+    const i = merged.findIndex((e) => e.version === result.version);
     if (i < 0) {
-      next.push(entry);
-      changes.push({ type: 'feat', tool: tool.name, text: `publish ${r.version}` });
-    } else if (r.revision > next[i].revision) {
-      next[i] = entry;
-      changes.push({ type: 'fix', tool: tool.name, text: `republish ${r.version} (r${r.revision})` });
+      merged.push(entry);
+      changes.push({ type: 'feat', tool: tool.name, text: `publish ${result.version}` });
+    } else if (result.revision > merged[i].revision) {
+      merged[i] = entry;
+      changes.push({ type: 'fix', tool: tool.name, text: `republish ${result.version} (r${result.revision})` });
     }
   }
   // The retired flag follows the tool definition both ways: removing a version from retired restores it.
-  for (const e of next) {
+  for (const e of merged) {
     const retired = isRetired(tool, e.version);
     if (retired && !e.retired) {
       e.retired = true;
@@ -37,5 +37,5 @@ export function mergeCatalog(tool, entries, published, { now = new Date().toISOS
       changes.push({ type: 'feat', tool: tool.name, text: `restore ${e.version}` });
     }
   }
-  return { entries: next.sort((a, b) => compareVersions(a.version, b.version)), changes };
+  return { entries: merged.sort((a, b) => compareVersions(a.version, b.version)), changes };
 }
