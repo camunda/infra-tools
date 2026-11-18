@@ -17,5 +17,12 @@
       "amd64": "x64",
       "arm64": "aarch64"
     }
+  },
+  "setup": {
+    "action": "actions/setup-java",
+    "versionInput": "java-version",
+    "with": {
+      "distribution": "temurin"
+    }
   }
 }
