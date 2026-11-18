@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The action (action.yml): installs the selected tools from the index into the tool cache, and puts plain tools on PATH.
-# Inputs come from the environment: TOOLS (plain tool selectors), CACHE_TOOLS (tool-cache tool selectors), MODE (`extract`
-# or `validate`), TOKEN (registry token), INDEX (<registry>/<repository>:<tag>) and SUMMARY (`true`: table of the selected
-# tools in the job summary).
+# Inputs come from the environment: TOOLS (plain tool selectors), TOOL_CACHE_TOOLS (tool-cache tool selectors), MODE
+# (`extract` or `validate`), TOKEN (registry token), INDEX (<registry>/<repository>:<tag>) and SUMMARY (`true`: table of the
+# selected tools in the job summary).
 # Requires bash 5, curl, jq, tar and sha256sum on Linux; yq for MODE=validate.
 set -euo pipefail
 
@@ -218,7 +218,7 @@ fi
 # "<input> <selector>" for each selector, plain tools first.
 mapfile -t listed < <(
   tr -s ' \t\r\n' '\n' <<<"${TOOLS:-}" | sed '/^$/d; s/^/tools /'
-  tr -s ' \t\r\n' '\n' <<<"${CACHE_TOOLS:-}" | sed '/^$/d; s/^/tool-cache /'
+  tr -s ' \t\r\n' '\n' <<<"${TOOL_CACHE_TOOLS:-}" | sed '/^$/d; s/^/tool-cache /'
 )
 selectors=()
 declare -A want folder arch_folder add_path home version detail
