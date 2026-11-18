@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkPullRequest } from '../lib/pull-request.mjs';
+import { checkPullRequest, previewComment, previewCommentUpdate } from '../lib/pull-request.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const now = Date.parse('2026-10-14T12:00:00Z');
@@ -176,4 +176,23 @@ test('the release notes preview shows what the next release adds, replaces and r
 test('a PR changing no tool has no release notes preview', async () => {
   const result = await check({ tools: [maven({ '*': { from: '3.9.16' } })], changedFiles: ['README.md'], plan: { lookup: upstreamOf({}), tagExists: tagsIn() } });
   assert.equal(result.notes, null);
+});
+
+// Issue comments of a PR, as the GitHub REST API lists them.
+const comment = (id, login, body) => ({ id, user: { login }, body });
+
+test('the release notes preview comment is created once, then updated on each push', async () => {
+  const preview = previewComment({ builds: [], warnings: [], notes: 'Index: next release' });
+  assert.deepEqual(previewCommentUpdate([comment(1, 'someone', 'LGTM')], preview), { body: preview });
+  const comments = [comment(1, 'someone', preview), comment(2, 'github-actions[bot]', 'other'), comment(3, 'github-actions[bot]', preview)];
+  assert.deepEqual(previewCommentUpdate(comments, 'new preview'), { id: 3, body: 'new preview' });
+});
+
+test('a push that no longer changes tools updates the release notes preview comment to say so, and posts none without one', async () => {
+  assert.equal(previewComment({ builds: [], warnings: [], notes: null }), null);
+  assert.equal(previewCommentUpdate([comment(1, 'someone', 'LGTM')], null), null);
+  const old = previewComment({ builds: [], warnings: [], notes: 'Index: next release' });
+  const update = previewCommentUpdate([comment(1, 'someone', 'LGTM'), comment(2, 'github-actions[bot]', old)], null);
+  assert.equal(update.id, 2);
+  assert.match(update.body, /^<!-- infra-tools: pull request checks -->\n## Next release preview\n\nNo tool changes/);
 });

@@ -76,3 +76,36 @@ export async function checkPullRequest({ tools, baseTools, changedFiles, plan: p
   const after = buildIndex({ tools, catalogs: nextCatalogs, previousIndex, layers });
   return { builds, warnings, notes: releaseNotes({ previousVersion, repository, before: previousIndex, after }) };
 }
+
+// Marks the release notes preview comment, one per PR, updated on each push.
+const MARKER = '<!-- infra-tools: pull request checks -->';
+// Posted by the workflow's token.
+const BOT = 'github-actions[bot]';
+
+// The release notes preview comment of a checkPullRequest result, or null when no tool changed.
+export function previewComment({ builds, warnings, notes }) {
+  if (notes === null) return null;
+  return [
+    MARKER,
+    '## Next release preview',
+    '',
+    ...warnings.flatMap((w) => ['> [!WARNING]', `> ${w}`, '']),
+    '**Dry run** (built and tested on every platform, never pushed):',
+    '',
+    ...(builds.length ? builds.map((b) => `- ${b.tool} ${b.version} \`${b.tag}\`: ${b.reason}`) : ['- nothing to build']),
+    '',
+    '**Release notes** of the next release, once the reconciler has published the planned versions:',
+    '',
+    notes,
+  ].join('\n');
+}
+
+// How to bring a PR's preview comment up to date. comments: the PR's issue comments ({ id, user: { login }, body }, GitHub
+// REST API); preview: previewComment's. Returns { id, body } to update the existing comment, { body } to create one, or null
+// when there is nothing to post: a PR that no longer changes tools gets its stale comment replaced, and none created.
+export function previewCommentUpdate(comments, preview) {
+  const existing = comments.find((c) => c.user?.login === BOT && c.body?.startsWith(MARKER));
+  const body = preview ?? (existing && [MARKER, '## Next release preview', '', 'No tool changes: this pull request publishes nothing.'].join('\n'));
+  if (!body) return null;
+  return existing ? { id: existing.id, body } : { body };
+}

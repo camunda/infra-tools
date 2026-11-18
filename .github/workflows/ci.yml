@@ -79,30 +79,12 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
+        # Fork PRs get a read-only token: no comment, the preview stays in the job summary.
+        PR: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.number || '' }}
       run: |
-        node scripts/pull-request.mjs --image ghcr.io/camunda/infra-tools --repository "${REPOSITORY}" --out "${OUT}"
+        node scripts/pull-request.mjs --image ghcr.io/camunda/infra-tools --repository "${REPOSITORY}" --out "${OUT}" ${PR:+--comment "${PR}"}
         echo "builds=$(jq -c . "${OUT}/builds.json")" >>"${GITHUB_OUTPUT}"
-        if [[ -f "${OUT}/comment.md" ]]; then
-          cat "${OUT}/comment.md" >>"${GITHUB_STEP_SUMMARY}"
-          echo "comment=true" >>"${GITHUB_OUTPUT}"
-        fi
-
-    - name: Comment the release notes preview
-      # Fork PRs get a read-only token: the preview stays in the job summary.
-      if: steps.check.outputs.comment == 'true' && github.event.pull_request.head.repo.full_name == github.repository
-      env:
-        GH_TOKEN: ${{ github.token }}
-        PR: ${{ github.event.pull_request.number }}
-        REPOSITORY: ${{ github.repository }}
-      run: |
-        marker="$(head -n 1 "${OUT}/comment.md")"
-        id="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR}/comments" \
-          | jq -rs --arg marker "${marker}" '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith($marker)))][0].id // empty')"
-        if [[ -n "${id}" ]]; then
-          gh api --silent -X PATCH "repos/${REPOSITORY}/issues/comments/${id}" -F "body=@${OUT}/comment.md"
-        else
-          gh api --silent "repos/${REPOSITORY}/issues/${PR}/comments" -F "body=@${OUT}/comment.md"
-        fi
+        if [[ -f "${OUT}/comment.md" ]]; then cat "${OUT}/comment.md" >>"${GITHUB_STEP_SUMMARY}"; fi
 
   pr-dry-run:
     name: Dry run ${{ matrix.tool }} ${{ matrix.version }}
