@@ -94,8 +94,8 @@ export function releaseNotes({ version, previous, repository, before, after }) {
     out.push(`### ${title}`, '', `| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.join(' | ')} |`), '');
   };
   table('➕ Added', ['Tool', 'Version', 'Line', 'Platforms', 'Tool release'], changes.added.map((i) => [i.tool, i.version, i.line, arches(i), link(i)]));
-  table('🔁 Replaced', ['Tool', 'Version', 'Revision', 'Tool release'], changes.replaced.map((i) => [i.tool, i.version, `r${i.previousRevision} → r${i.revision}`, link(i)]));
-  table('➖ Retired', ['Tool', 'Version', 'Tool release'], changes.retired.map((i) => [i.tool, i.version, link(i)]));
+  table('🔁 Replaced', ['Tool', 'Version', 'Line', 'Revision', 'Tool release'], changes.replaced.map((i) => [i.tool, i.version, i.line, `r${i.previousRevision} → r${i.revision}`, link(i)]));
+  table('➖ Retired', ['Tool', 'Version', 'Line', 'Tool release'], changes.retired.map((i) => [i.tool, i.version, i.line, link(i)]));
   if (out.length === 2) out.push('No tool changes.', '');
   return out.join('\n');
 }
