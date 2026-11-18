@@ -5,24 +5,21 @@
 // outage fails it, never reads as "nothing to publish".
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseArgs } from 'node:util';
-import { planTool } from './lib/plan.mjs';
 import { checkCatalogTags } from './lib/reconcile.mjs';
+import { planEveryTool, reconcilerOptions } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
-import { readCatalog, readToolDefinition, readToolNames, ROOT } from './lib/repository.mjs';
+import { readCatalog, readToolNames } from './lib/repository.mjs';
 
-const { values } = parseArgs({ options: { image: { type: 'string' }, out: { type: 'string', default: join(ROOT, 'build/out/reconcile') } } });
-if (!values.image) throw new Error('usage: node plan.mjs --image <registry>/<repository> [--out <dir>]');
+const values = reconcilerOptions('plan.mjs');
 
 const registry = new Registry(values.image);
-const tagExists = (tag) => registry.exists(tag);
 const names = await readToolNames();
-await checkCatalogTags({ catalogs: Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readCatalog(name)]))), tagExists });
+await checkCatalogTags({ catalogs: Object.fromEntries(await Promise.all(names.map(async (name) => [name, await readCatalog(name)]))), tagExists: (tag) => registry.exists(tag) });
 
 const builds = [];
-for (const name of names) {
-  const plan = await planTool(await readToolDefinition(name), { tagExists, now: Date.now() });
-  for (const v of plan.versions) {
+const { tools, plans } = await planEveryTool(registry);
+for (const { name } of tools) {
+  for (const v of plans[name].versions) {
     if (v.decision === 'publish') builds.push({ tool: name, version: v.version, tag: v.tag, reason: v.reason });
     else if (v.decision === 'wait') console.log(`${name} ${v.version}: waits, ${v.reason}`);
   }
