@@ -1,7 +1,8 @@
 ---
 self-hosted-runner:
-  # Labels of the self-hosted runners used in workflows; none yet.
+  # Labels of the self-hosted runners used in workflows.
   # GitHub-hosted labels newer than actionlint 1.7.12 are listed too, until a release knows them.
   labels:
+  - gcp-core-4-longrunning # multi-platform builds of the reconciler
   - ubuntu-26.04
   - ubuntu-26.04-arm

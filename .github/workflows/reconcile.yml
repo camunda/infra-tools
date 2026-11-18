@@ -1,0 +1,207 @@
+---
+name: Reconcile
+
+# Reconciler (spec §5.3, ADR 0005): publishes every upstream version within the version lines of the tool definitions. Builds,
+# tests and pushes the missing tool images with the job token, creates their tool releases, and records them in one commit per
+# run, pushed to main by the Infra - Misc App, bypass actor of the main ruleset (D49).
+on:
+  schedule:
+  - cron: '0 */6 * * *' # every 6 hours
+  push:
+    branches:
+    - main
+    # Record commits only change the catalog: they publish nothing new.
+    paths-ignore:
+    - published/**
+  workflow_dispatch:
+
+permissions: {}
+
+# One run at a time, never cancelled: a run plans against what the previous one published.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/camunda/infra-tools
+  OUT: build/out/reconcile
+
+jobs:
+  plan:
+    name: Plan
+    permissions:
+      contents: read
+      packages: read # read the published tags
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      builds: ${{ steps.plan.outputs.builds }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+        cache: npm
+        cache-dependency-path: scripts/package-lock.json
+
+    - name: Install dependencies
+      run: make install
+
+    # Fails on an upstream or registry outage, and when a catalog version lost its tag.
+    - name: Plan the tool versions to publish
+      id: plan
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: |
+        node scripts/plan.mjs --image "${IMAGE}" --out "${OUT}"
+        echo "builds=$(jq -c . "${OUT}/builds.json")" >>"${GITHUB_OUTPUT}"
+
+  build:
+    name: Publish ${{ matrix.tool }} ${{ matrix.version }}
+    needs: plan
+    if: needs.plan.outputs.builds != '[]'
+    permissions:
+      contents: read
+      packages: write # push the tool image to ghcr.io
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.builds) }}
+    # Multi-platform build and tests, the other platform under QEMU: a long-running runner (spec §5.8).
+    runs-on: gcp-core-4-longrunning
+    timeout-minutes: 60
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+        cache: npm
+        cache-dependency-path: scripts/package-lock.json
+
+    - name: Install dependencies
+      run: make install
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    # Never over an existing tag: published tool images never change.
+    - name: Build, test and push the tool image
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        TOOL: ${{ matrix.tool }}
+        VERSION: ${{ matrix.version }}
+      run: node scripts/build.mjs "${TOOL}" "${VERSION}" --push "${IMAGE}"
+
+  record:
+    name: Record
+    needs:
+    - plan
+    - build
+    # Also after failed builds: what was pushed is recorded, the rest is planned again by the next run.
+    if: always() && needs.plan.result == 'success'
+    permissions:
+      contents: read
+      packages: read # read the published tags and tool images
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - name: Generate a GitHub token
+      id: app-token
+      uses: camunda/infra-global-github-actions/generate-github-app-token-from-vault-secrets@main
+      with:
+        github-app-id-vault-key: GITHUB_APP_ID
+        github-app-id-vault-path: secret/data/products/infra/ci/team-infrastructure
+        github-app-private-key-vault-key: GITHUB_APP_PRIVATE_KEY
+        github-app-private-key-vault-path: secret/data/products/infra/ci/team-infrastructure
+        vault-auth-method: jwt
+        vault-auth-jwt-role: ${{ secrets.VAULT_JWT_ROLE }}
+        vault-auth-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
+        vault-auth-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        vault-url: ${{ secrets.VAULT_ADDR }}
+
+    # The tip of main, which may have moved since the run started: the record commit goes on top of it.
+    - name: Checkout main
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        ref: main
+        token: ${{ steps.app-token.outputs.token }}
+        persist-credentials: true # push the record commit as the Infra - Misc App
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+        cache: npm
+        cache-dependency-path: scripts/package-lock.json
+
+    - name: Install dependencies
+      run: make install
+
+    - name: Record the published tool versions
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+      run: node scripts/record.mjs --image "${IMAGE}" --out "${OUT}"
+
+    # Before the record commit: a run that fails here records the same versions next time.
+    - name: Create the tool releases
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        REPOSITORY: ${{ github.repository }}
+        COMMIT: ${{ github.sha }}
+      run: node scripts/publish.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --commit "${COMMIT}" --out "${OUT}"
+
+    - name: Push the record commit to main
+      env:
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+      run: |
+        if [[ ! -s "${OUT}/commit.txt" ]]; then
+          echo "Nothing to record."
+          exit 0
+        fi
+        user_id="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+        git config user.name "${APP_SLUG}[bot]"
+        git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+        git add published
+        git commit --file "${OUT}/commit.txt"
+        git push origin HEAD:main
+
+  check:
+    name: Check Reconcile
+    if: always()
+    permissions: {}
+    needs:
+    - plan
+    - build
+    - record
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Check results
+      env:
+        ERROR: >-
+          ${{
+            contains(needs.*.result, 'failure') ||
+            contains(needs.*.result, 'cancelled')
+          }}
+      run: |
+        if [ "$ERROR" == "true" ]; then
+          echo "Some reconciler jobs have failed or been cancelled."
+          exit 1
+        fi
+        echo "All reconciler jobs passed or were skipped."
