@@ -116,7 +116,8 @@ test('with {arch} in the package name, a version missing on one platform waits (
     return { releases: perArch[config.packageName].map((version) => ({ version, releaseTimestamp: old })) };
   };
   const plan = await planTool(tool, { lookup, tagExists: noTags, now });
-  assert.deepEqual(lookups, Object.keys(perArch).map((packageName) => ({ datasource: 'java-version', packageName })));
+  // One lookup per platform, with the tool cache arch folder in place of {arch}; the order does not matter.
+  assert.deepEqual(lookups.map((c) => `${c.datasource} ${c.packageName}`).sort(), Object.keys(perArch).map((name) => `java-version ${name}`).sort());
   assert.deepEqual(decisions(plan), [
     '21.0.11+9: wait (missing on linux/arm64)',
     '21.0.12+8: publish (new)',
