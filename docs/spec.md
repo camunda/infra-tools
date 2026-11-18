@@ -99,7 +99,7 @@ infra-tools/
     ├── renovate.json5
     ├── renovate-preset.json5     # for consumers
     ├── config/                   # release-please-config.json, .release-please-manifest.json
-    └── workflows/                # reconcile.yml, pr.yml, ci.yml (action tests), release.yml, release-merge.yml (Q15), publish-tool.yml (manual, until the reconciler)
+    └── workflows/                # reconcile.yml, ci.yml (pull request checks: tests of the scripts and the action), release.yml, release-merge.yml (Q15), publish-tool.yml (manual, until the reconciler)
 ```
 
 ### 5.2 Tool definition and build
