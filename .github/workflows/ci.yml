@@ -41,6 +41,110 @@ jobs:
     - name: Run tests
       run: make test
 
+  # Pull request checks (spec §5.4): plan the tools the PR changes, warn about revisions, comment the release notes preview.
+  # Read only: nothing is pushed or published.
+  pr-plan:
+    name: Plan pull request
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      packages: read # read published tags and the latest release's index
+      pull-requests: write # comment the release notes preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      builds: ${{ steps.check.outputs.builds }}
+    env:
+      OUT: build/out/pull-request
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+        # The merge commit and its first parent, the base: the changed files and the base tool definitions.
+        fetch-depth: 2
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+        cache: npm
+        cache-dependency-path: scripts/package-lock.json
+
+    - name: Install dependencies
+      run: make install
+
+    - name: Check the pull request
+      id: check
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        node scripts/pull-request.mjs --image ghcr.io/camunda/infra-tools --repository "${REPOSITORY}" --out "${OUT}"
+        echo "builds=$(jq -c . "${OUT}/builds.json")" >> "$GITHUB_OUTPUT"
+        if [[ -f "${OUT}/comment.md" ]]; then
+          cat "${OUT}/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          echo "comment=true" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Comment the release notes preview
+      # Fork PRs get a read-only token: the preview stays in the job summary.
+      if: steps.check.outputs.comment == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+      env:
+        GH_TOKEN: ${{ github.token }}
+        PR: ${{ github.event.pull_request.number }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        marker="$(head -n 1 "${OUT}/comment.md")"
+        id="$(gh api --paginate "repos/${REPOSITORY}/issues/${PR}/comments" \
+          | jq -rs --arg marker "${marker}" '[.[][] | select(.user.login == "github-actions[bot]" and (.body | startswith($marker)))][0].id // empty')"
+        if [[ -n "${id}" ]]; then
+          gh api --silent -X PATCH "repos/${REPOSITORY}/issues/comments/${id}" -F "body=@${OUT}/comment.md"
+        else
+          gh api --silent "repos/${REPOSITORY}/issues/${PR}/comments" -F "body=@${OUT}/comment.md"
+        fi
+
+  pr-dry-run:
+    name: Dry run ${{ matrix.tool }} ${{ matrix.version }}
+    needs: pr-plan
+    if: needs.pr-plan.outputs.builds != '' && needs.pr-plan.outputs.builds != '[]'
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.pr-plan.outputs.builds) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+        cache: npm
+        cache-dependency-path: scripts/package-lock.json
+
+    - name: Install dependencies
+      run: make install
+
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+    # linux/amd64 and linux/arm64, with the tool test on each; no --push.
+    - name: Build and test the tool image
+      env:
+        TOOL: ${{ matrix.tool }}
+        VERSION: ${{ matrix.version }}
+      run: node scripts/build.mjs "${TOOL}" "${VERSION}"
+
   action-linux:
     name: Test action (${{ matrix.runner }})
     permissions:
@@ -131,6 +235,8 @@ jobs:
     permissions: {}
     needs:
     - test
+    - pr-plan
+    - pr-dry-run
     - action-linux
     - action-macos
     runs-on: ubuntu-latest
