@@ -110,7 +110,7 @@ infra-tools/
 | --- | --- | --- |
 | `source.datasource` | required | Renovate source listing the tool's versions (e.g. `node-version`, `github-releases`, `java-version`). |
 | `source.packageName` | tool name | Package to look up in that source; `{arch}` makes one lookup per platform. |
-| `source.versioning` | the source's default | Version scheme used to compare and sort versions (e.g. `semver`, `maven`). |
+| `source.versioning` | the source's default | Version scheme Renovate reads versions with and that tells stable versions (e.g. `semver`, `maven`); ordering and `from` follow D23. |
 | `source.extractVersion` | none | Regex turning an upstream tag into a version (e.g. `v26.11.1` → `26.11.1`). |
 | `publish.lines` | required | Version lines to publish, keyed by a major (`"21"`), a minor (`"1.25"`) or `"*"` (versions in no other line). |
 | `publish.minAge` | `1 day` | Wait after an upstream release before building it; a line can override it. |
