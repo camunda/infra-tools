@@ -78,3 +78,88 @@ test('a PR changing the build files of published versions without a revision bum
   assert.deepEqual(bumped.warnings, []);
   assert.deepEqual(builds(bumped), ['maven 3.9.15 maven-3.9.15-r2 (planned: revision 2)', 'maven 3.9.16 maven-3.9.16-r3 (planned: revision 3)']);
 });
+
+// Index entries of one published tool version, as the previous release's index holds them.
+const indexed = (tool, version, revision, line) => ['linux/amd64', 'linux/arm64'].map((platform) => ({
+  platform,
+  tool: tool.name,
+  version,
+  line,
+  folderVersion: version.replaceAll('+', '-'),
+  revision,
+  tag: `${tool.name}-${version.replaceAll('+', '-')}-r${revision}`,
+  cacheFolder: tool.install.cacheFolder,
+  archFolder: tool.install.archFolders[platform.split('/')[1]],
+  addToPath: tool.install.addToPath,
+  digest: `sha256:${tool.name}-${version}-r${revision}-${platform}`,
+  size: 100,
+  mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip',
+}));
+const catalogEntry = (tool, version, revision, line) => ({
+  version,
+  line,
+  folderVersion: version.replaceAll('+', '-'),
+  revision,
+  tag: `${tool.name}-${version.replaceAll('+', '-')}-r${revision}`,
+  ...tool.install,
+  publishedAt: '2026-10-01T00:00:00.000Z',
+});
+
+test('the release notes preview shows what the next release adds, replaces and retires once the planned versions are published', async () => {
+  const before = { java: java({ 17: { from: '17.0.18' }, 21: { from: '21.0.12' } }), maven: maven({ '*': { from: '3.9.15' } }) };
+  const head = { java: java({ 17: { retired: 'all' }, 21: { from: '21.0.12', revisions: { '21.0.12+8': 2 } } }), maven: before.maven };
+  const fetched = [];
+  const result = await check({
+    tools: [head.java, head.maven],
+    baseTools: before,
+    changedFiles: ['tools/java/tool.json'],
+    lookup: upstreamOf({ 'java-version': ['17.0.18+8', '21.0.12+8', '21.0.13+5'] }),
+    tagExists: tagsIn('java-17.0.18-8-r1', 'java-21.0.12-8-r1'),
+    previousVersion: '1.2.0',
+    previousIndex: [
+      ...indexed(before.java, '17.0.18+8', 1, '17'),
+      ...indexed(before.java, '21.0.12+8', 1, '21'),
+      ...indexed(before.maven, '3.9.15', 1, '*'),
+    ],
+    // maven 3.9.16 was published after release 1.2.0: the next release adds it too.
+    catalogs: {
+      java: [catalogEntry(before.java, '17.0.18+8', 1, '17'), catalogEntry(before.java, '21.0.12+8', 1, '21')],
+      maven: [catalogEntry(before.maven, '3.9.15', 1, '*'), catalogEntry(before.maven, '3.9.16', 1, '*')],
+    },
+    toolImageLayers: async (tag) => {
+      fetched.push(tag);
+      return Object.fromEntries(['linux/amd64', 'linux/arm64'].map((p) => [p, { digest: `sha256:${tag}-${p}`, size: 100, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' }]));
+    },
+  });
+  const release = (tag) => `[${tag}](https://github.com/camunda/infra-tools/releases/tag/${tag})`;
+  assert.equal(result.notes, [
+    'Index: next release, previous: `1.2.0-tools`',
+    '',
+    '### ➕ Added',
+    '',
+    '| Tool | Version | Line | Platforms | Tool release |',
+    '| --- | --- | --- | --- | --- |',
+    `| java | 21.0.13+5 | 21 | amd64, arm64 | ${release('java-21.0.13-5-r1')} |`,
+    `| maven | 3.9.16 | * | amd64, arm64 | ${release('maven-3.9.16-r1')} |`,
+    '',
+    '### 🔁 Replaced',
+    '',
+    '| Tool | Version | Line | Revision | Tool release |',
+    '| --- | --- | --- | --- | --- |',
+    `| java | 21.0.12+8 | 21 | r1 → r2 | ${release('java-21.0.12-8-r2')} |`,
+    '',
+    '### ➖ Retired',
+    '',
+    '| Tool | Version | Line | Tool release |',
+    '| --- | --- | --- | --- |',
+    `| java | 17.0.18+8 | 17 | ${release('java-17.0.18-8-r1')} |`,
+    '',
+  ].join('\n'));
+  // Only tool images missing from the previous index are read from the registry.
+  assert.deepEqual(fetched, ['maven-3.9.16-r1']);
+});
+
+test('a PR changing no tool has no release notes preview', async () => {
+  const result = await check({ tools: [maven({ '*': { from: '3.9.16' } })], changedFiles: ['README.md'], lookup: upstreamOf({}), tagExists: tagsIn() });
+  assert.equal(result.notes, null);
+});

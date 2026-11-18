@@ -86,12 +86,13 @@ function diffIndex(before, after) {
   return changes;
 }
 
-// Release notes of release `version`: the Added / Replaced / Retired tables against the previous index (D20).
+// Release notes of release `version` (none: the next release, previewed on PRs): the Added / Replaced / Retired tables against
+// the previous index (D20).
 export function releaseNotes({ version, previousVersion, repository, before, after }) {
   const changes = diffIndex(before, after);
   const link = (i) => `[${i.tag}](https://github.com/${repository}/releases/tag/${i.tag})`;
   const arches = (i) => i.platforms.map(archOf).sort().join(', ');
-  const out = [`Index: \`${version}-tools\`${previousVersion ? `, previous: \`${previousVersion}-tools\`` : ''}`, ''];
+  const out = [`Index: ${version ? `\`${version}-tools\`` : 'next release'}${previousVersion ? `, previous: \`${previousVersion}-tools\`` : ''}`, ''];
   const table = (title, header, rows) => {
     if (!rows.length) return;
     out.push(`### ${title}`, '', `| ${header.join(' | ')} |`, `| ${header.map(() => '---').join(' | ')} |`, ...rows.map((r) => `| ${r.join(' | ')} |`), '');
