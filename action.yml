@@ -14,6 +14,9 @@ inputs:
     description: >-
       Index to install from, `<registry>/<repository>:<tag>` (e.g. `ghcr.io/camunda/infra-tools:tracer-tools`). Required until the first release, which becomes the default.
     default: ''
+  summary:
+    description: '`true` adds a table of the selected tools (version, result, tool cache path) to the job summary.'
+    default: 'false'
 
 outputs:
   versions:
@@ -31,4 +34,5 @@ runs:
       TOOLS: ${{ inputs.tools }}
       TOKEN: ${{ inputs.token }}
       INDEX: ${{ inputs.index }}
+      SUMMARY: ${{ inputs.summary }}
     run: '"${GITHUB_ACTION_PATH}/scripts/action/setup.sh"'
