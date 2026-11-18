@@ -5,22 +5,12 @@
 import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseArgs } from 'node:util';
+import { reconcilerOptions } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
-import { readToolDefinition, ROOT } from './lib/repository.mjs';
+import { readToolDefinition } from './lib/repository.mjs';
 import { toolRelease } from './lib/tool-release.mjs';
 
-const { values } = parseArgs({
-  options: {
-    image: { type: 'string' },
-    repository: { type: 'string' },
-    commit: { type: 'string' },
-    out: { type: 'string', default: join(ROOT, 'build/out/reconcile') },
-  },
-});
-if (!values.image || !values.repository || !values.commit) {
-  throw new Error('usage: node publish.mjs --image <registry>/<repository> --repository <owner>/<name> --commit <sha> [--out <dir>]');
-}
+const values = reconcilerOptions('publish.mjs', { repository: '<owner>/<name>', commit: '<sha>' });
 
 const gh = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
 // The tool release of a tag, or null when there is none; any other error throws.

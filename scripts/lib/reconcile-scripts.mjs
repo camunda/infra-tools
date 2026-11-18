@@ -1,0 +1,29 @@
+// Shared by the reconciler scripts (plan.mjs, record.mjs, publish.mjs): their options and the plan of every tool.
+import { join } from 'node:path';
+import { parseArgs } from 'node:util';
+import { planTool } from './plan.mjs';
+import { readToolDefinition, readToolNames, ROOT } from './repository.mjs';
+
+// Options of a reconciler script: --image <registry>/<repository>, the script's own required options (e.g. { repository:
+// '<owner>/<name>' }, name to value in its usage) and --out <dir> (default build/out/reconcile). Throws its usage when one is
+// missing.
+export function reconcilerOptions(script, required = {}) {
+  const names = ['image', ...Object.keys(required)];
+  const { values } = parseArgs({
+    options: { ...Object.fromEntries(names.map((name) => [name, { type: 'string' }])), out: { type: 'string', default: join(ROOT, 'build/out/reconcile') } },
+  });
+  if (names.some((name) => !values[name])) {
+    const usage = ['--image <registry>/<repository>', ...Object.entries(required).map(([name, value]) => `--${name} ${value}`), '[--out <dir>]'];
+    throw new Error(`usage: node ${script} ${usage.join(' ')}`);
+  }
+  return values;
+}
+
+// Every tool definition, and its plan by tool name against upstream and the published tags in registry (Registry).
+export async function planEveryTool(registry) {
+  const tools = await Promise.all((await readToolNames()).map(readToolDefinition));
+  const options = { tagExists: (tag) => registry.exists(tag), now: Date.now() };
+  const plans = {};
+  for (const tool of tools) plans[tool.name] = await planTool(tool, options);
+  return { tools, plans };
+}
