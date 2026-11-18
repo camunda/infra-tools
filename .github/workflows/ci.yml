@@ -295,7 +295,7 @@ jobs:
         echo "node-home=${node_home}" >>"${GITHUB_OUTPUT}"
 
     - name: Set up the resolved Java build
-      uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
       with:
         distribution: temurin
         java-version: ${{ fromJSON(steps.install.outputs.versions).java }}
@@ -308,7 +308,7 @@ jobs:
         test -f "${JAVA_HOME}/infra-tools-marker"
 
     - name: Set up Java by its major, with two builds present
-      uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
       with:
         distribution: temurin
         java-version: '21'
