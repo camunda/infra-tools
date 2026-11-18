@@ -24,6 +24,7 @@ jobs:
     concurrency:
       group: renovate-pr-maintainer
       cancel-in-progress: false
+    # No actions scope: the action reads and reruns PR workflow runs only with a rerun-budget of 1 or more (default 0, unset here).
     permissions:
       checks: read # read the check runs of the PRs
       contents: read # read commits and compare each PR with its base
