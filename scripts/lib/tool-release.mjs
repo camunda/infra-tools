@@ -44,7 +44,7 @@ export function toolRelease({ tool, recorded, layers, digest, image, repository,
 }
 
 // The annotation of a tool image's index holding its build commit, set by scripts/build.mjs (build/docker-bake.hcl).
-const BUILD_COMMIT ='org.opencontainers.image.revision';
+const BUILD_COMMIT = 'org.opencontainers.image.revision';
 
 // The tool release of a recorded tool version, from its tool image in registry (Registry): layers, digest and build commit.
 // Fails when the tool image has no build commit (pushed before scripts/build.mjs set it): with no commit to tag, it would get
