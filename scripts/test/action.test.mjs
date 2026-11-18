@@ -191,6 +191,15 @@ test('a present tool makes no network call, even with an unreachable index', asy
   assert.match(result.log, /^maven@3: 3\.9\.16 cached -> /m);
 });
 
+test('a present version with build metadata is output with its +', async () => {
+  await mkdir(toolCache('maven/3.9.16-1/x64/bin'), { recursive: true });
+  await writeFile(toolCache('maven/3.9.16-1/x64.complete'), '');
+  const result = await action({ tools: 'maven@3.9.16+1' });
+  assert.equal(result.status, 0, result.log);
+  assert.equal(result.outputs.versions, '{"maven":"3.9.16+1"}');
+  assert.deepEqual(registry.requests, []);
+});
+
 test('a version without its complete marker is not present and is installed again', async () => {
   await mkdir(toolCache('maven/3.9.16/x64/bin'), { recursive: true });
   const result = await action({ tools: 'maven@3.9.16' });

@@ -118,6 +118,7 @@ for selector in "${selectors[@]}"; do
   hit="$(highest "${want[${selector}]}" "${present[@]}")"
   if [[ -n "${hit}" ]]; then
     home["${selector}"]="${tool_cache}/${folder[${selector}]}/${hit}/${arch_folder[${selector}]}"
+    # Folders write `+` as `-`; the first `-` is the build metadata one, since prereleases are never published (D41).
     version["${selector}"]="${hit/-/+}"
     detail["${selector}"]=cached
   else
