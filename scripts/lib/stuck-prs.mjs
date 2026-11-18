@@ -9,10 +9,11 @@ const section = (text) => ({ type: 'section', text: { type: 'mrkdwn', text } });
 // Slack mrkdwn control characters (https://api.slack.com/reference/surfaces/formatting#escaping).
 const escape = (text) => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
-// processedPrs: the action's processed-prs, [{ number, base, state, age_hours, ... }]. repository: owner/name, for PR links.
-// runUrl: the workflow run, linked from the message. Returns the Slack incoming webhook payload, or null when no PR is stuck.
+// processedPrs: the action's processed-prs output, JSON text of [{ number, base, state, age_hours, ... }], read as no PR when
+// empty. repository: owner/name, for PR links. runUrl: the workflow run, linked from the message. Returns the Slack incoming
+// webhook payload, or null when no PR is stuck.
 export function stuckPrDigest(processedPrs, { repository, runUrl }) {
-  const stuck = processedPrs.filter((pr) => REASONS[pr.state] && pr.age_hours >= STUCK_HOURS);
+  const stuck = JSON.parse(processedPrs.trim() || '[]').filter((pr) => REASONS[pr.state] && pr.age_hours >= STUCK_HOURS);
   if (!stuck.length) return null;
   const lines = [`:warning: *${stuck.length} Renovate PR(s) not rebased in days*, far past the window where they should have caught up to their base branch:`];
   for (const base of [...new Set(stuck.map((pr) => pr.base))].sort()) {
