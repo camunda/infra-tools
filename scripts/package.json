@@ -1,0 +1,14 @@
+{
+  "name": "infra-tools-scripts",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26.13"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "renovate": "44.251.0"
+  }
+}

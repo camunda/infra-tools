@@ -1,0 +1,6 @@
+*                   @camunda/infrastructure
+
+# Critical paths: require review from the infra maintenance DRI
+.github/CODEOWNERS  @camunda/infra-maintenance-dri
+.github/config/     @camunda/infra-maintenance-dri
+.github/workflows/  @camunda/infra-maintenance-dri

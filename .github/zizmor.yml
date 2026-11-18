@@ -1,0 +1,12 @@
+---
+# GitHub Actions supply-chain policy, read by the zizmor pre-commit hook (locally and in the Lint workflow).
+# Every audit is enabled (D57): a new repository has no findings to triage.
+# Docs: https://docs.zizmor.sh/configuration/
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        # Camunda-owned actions and reusable workflows, consumed by ref (e.g. infra-global-github-actions at @main).
+        camunda/*: ref-pin
+        # Everything else, actions/* included, by commit SHA: a tag can be force-pushed by a compromised upstream.
+        "*": hash-pin

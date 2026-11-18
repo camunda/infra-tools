@@ -1,0 +1,68 @@
+---
+name: Lint
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint
+    permissions:
+      contents: read
+      pull-requests: read # validate-title reads the PR title and commits
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up Python
+      uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      with:
+        python-version: "3.15"
+
+    - name: Run pre-commit hooks
+      uses: pre-commit/action@2c7b3805fd2a0fd8c1884dcaebf91fc102a13ecd # v3.0.1
+      env:
+        # zizmor's online audits (impostor commits, known vulnerable actions, ...) need a token.
+        ZIZMOR_GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Validate PR title
+      if: github.event_name == 'pull_request'
+      uses: camunda/infra-global-github-actions/teams/infra/pull-request/validate-title@main
+
+  check:
+    name: Check Lint
+    if: always()
+    permissions: {}
+    needs:
+    - lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Check results
+      env:
+        ERROR: >-
+          ${{
+            contains(needs.*.result, 'failure') ||
+            contains(needs.*.result, 'cancelled')
+          }}
+      run: |
+        if [ "$ERROR" == "true" ]; then
+          echo "Some lint jobs have failed or been cancelled."
+          exit 1
+        fi
+        echo "All lint jobs passed or were skipped."

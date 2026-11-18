@@ -1,0 +1,4 @@
+---
+self-hosted-runner:
+  # Labels of the self-hosted runners used in workflows; none yet.
+  labels: []
