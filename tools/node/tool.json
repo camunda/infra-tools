@@ -8,7 +8,8 @@
     "lines": {
       "26": {
         "from": "26.13.1",
-        "reason": "camunda/camunda ci.yml: setup-node node-version 26"
+        "revisions": { "26.13.1": 2 },
+        "reason": "camunda/camunda ci.yml: setup-node node-version 26; r2 builds 26.13.1 again with its build commit, for its tool release"
       }
     }
   },

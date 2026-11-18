@@ -8,8 +8,8 @@
     "lines": {
       "3.9": {
         "from": "3.9.16",
-        "revisions": { "3.9.16": 2 },
-        "reason": "camunda/camunda ./mvnw (maven-wrapper.properties); r2 replaces the PoC build"
+        "revisions": { "3.9.16": 3 },
+        "reason": "camunda/camunda ./mvnw (maven-wrapper.properties); r3 builds 3.9.16 again with its build commit, for its tool release"
       }
     }
   },
