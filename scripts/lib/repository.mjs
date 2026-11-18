@@ -1,5 +1,5 @@
 // Files of this repository read by the scripts.
-import { readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseToolDefinition } from './tool-definition.mjs';
@@ -18,6 +18,11 @@ export async function readToolNames() {
 // Catalog entries of a tool (published/<tool>.json), [] before its first publication.
 export async function readCatalog(name) {
   return JSON.parse((await readOptional(join(ROOT, 'published', `${name}.json`))) ?? '[]');
+}
+
+export async function writeCatalog(name, entries) {
+  await mkdir(join(ROOT, 'published'), { recursive: true });
+  await writeFile(join(ROOT, 'published', `${name}.json`), `${JSON.stringify(entries, null, 2)}\n`);
 }
 
 // The release-please manifest, which holds the version of the latest release ('.').
