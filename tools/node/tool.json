@@ -11,5 +11,9 @@
         "reason": "camunda/camunda ci.yml: setup-node node-version 26; one fixed version until the reconciler publishes the line"
       }
     }
+  },
+  "setup": {
+    "action": "actions/setup-node",
+    "versionInput": "node-version"
   }
 }

@@ -104,7 +104,7 @@ infra-tools/
 
 ### 5.2 Tool definition and build
 
-`tool.json` has three blocks (D38): `source` (Renovate lookup options, passed as-is), `publish` (which versions are published) and `install` (tool cache layout); unknown blocks and options are rejected. Blocks with only defaults can be left out.
+`tool.json` has three blocks (D38): `source` (Renovate lookup options, passed as-is), `publish` (which versions are published) and `install` (tool cache layout), plus `setup` on tool-cache tools (their `setup-*` action, for the usage snippet of their tool releases, D53); unknown blocks and options are rejected. Blocks with only defaults can be left out.
 
 | Option | Default | Explanation |
 | --- | --- | --- |
@@ -117,6 +117,7 @@ infra-tools/
 | `install.cacheFolder` | tool name | Tool cache folder, matching what the tool's `setup-*` action expects (e.g. `Java_Temurin-Hotspot_jdk`). |
 | `install.archFolders` | `{"amd64": "x64", "arm64": "arm64"}` | Arch folder per platform, as the `setup-*` action expects it (e.g. `aarch64` for Java). |
 | `install.addToPath` | none | Folder added to `PATH`: the tool is a plain tool (`tools` input); without it, a tool-cache tool (`tool-cache` input). |
+| `setup.action` | none | Tool-cache tools only: the `setup-*` action that configures the tool (e.g. `actions/setup-java`), with `setup.versionInput` (its version input, e.g. `java-version`) and `setup.with` (other inputs, e.g. `{"distribution": "temurin"}`). The usage snippet passes it the resolved version. |
 
 Line options (`publish.lines.<key>`):
 

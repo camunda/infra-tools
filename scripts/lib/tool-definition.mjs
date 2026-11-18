@@ -1,11 +1,13 @@
 // Tool definitions (tools/<tool>/tool.json, D38): three blocks, source (Renovate lookup, passed as-is), publish (version
-// lines, D41) and install (tool cache layout). Blocks with only defaults can be left out.
+// lines, D41) and install (tool cache layout), plus setup for tool-cache tools (their setup-* action, for the usage snippet of
+// their tool releases, D53). Blocks with only defaults can be left out.
 import { compareVersions, inLine } from './versions.mjs';
 
 const OPTIONS = {
   source: ['datasource', 'packageName', 'versioning', 'extractVersion'],
   publish: ['minAge', 'lines'],
   install: ['cacheFolder', 'archFolders', 'addToPath'],
+  setup: ['action', 'versionInput', 'with'],
 };
 
 const DEFAULTS = {
@@ -30,6 +32,7 @@ export function parseToolDefinition(name, json) {
     source: { packageName: name, ...json.source },
     publish: { ...DEFAULTS.publish, ...json.publish },
     install: { cacheFolder: name, ...DEFAULTS.install, ...json.install },
+    ...(json.setup && { setup: { with: {}, ...json.setup } }),
   };
   if (!tool.source.datasource) fail('missing source.datasource');
   if (!tool.publish.lines || !Object.keys(tool.publish.lines).length) fail('missing publish.lines');
@@ -38,6 +41,12 @@ export function parseToolDefinition(name, json) {
   if (addToPath !== null && typeof addToPath !== 'string') fail('install.addToPath is a folder name');
   if (typeof tool.publish.minAge !== 'string') fail('publish.minAge is a duration string (e.g. "1 day")');
   checkDuration(fail, 'publish.minAge', tool.publish.minAge);
+  if (tool.setup) {
+    if (addToPath !== null) fail('setup is for tool-cache tools; a plain tool (install.addToPath) is ready to use');
+    if (typeof tool.setup.action !== 'string' || typeof tool.setup.versionInput !== 'string') fail('setup needs action and versionInput');
+    const inputs = tool.setup.with;
+    if (typeof inputs !== 'object' || Array.isArray(inputs) || Object.values(inputs ?? {}).some((v) => typeof v !== 'string')) fail('setup.with maps inputs to strings');
+  }
   validateLines(tool, fail);
   return tool;
 }

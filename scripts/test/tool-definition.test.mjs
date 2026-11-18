@@ -42,6 +42,23 @@ test('install options are checked', () => {
   rejects({ source, publish: { lines, minAge: 1 } }, 'tools/jq/tool.json: publish.minAge is a duration string (e.g. "1 day")');
 });
 
+test('a tool-cache tool names its setup-* action and version input for the usage snippet; a plain tool has none (D53)', () => {
+  const setup = { action: 'actions/setup-java', versionInput: 'java-version', with: { distribution: 'temurin' } };
+  const java = parseToolDefinition('java', { source: { datasource: 'java-version' }, publish: { lines: { 21: { from: '21.0.12' } } }, setup });
+  assert.deepEqual(java.setup, setup);
+  assert.deepEqual(parseToolDefinition('node', { source: { datasource: 'node-version' }, publish: { lines }, setup: { action: 'actions/setup-node', versionInput: 'node-version' } }).setup, {
+    action: 'actions/setup-node',
+    versionInput: 'node-version',
+    with: {},
+  });
+  const source = { datasource: 'github-releases' };
+  rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq' } }, 'tools/jq/tool.json: setup needs action and versionInput');
+  rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', with: { cache: true } } }, 'tools/jq/tool.json: setup.with maps inputs to strings');
+  rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', with: 'cache' } }, 'tools/jq/tool.json: setup.with maps inputs to strings');
+  rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', uses: 'x' } }, 'tools/jq/tool.json: unknown option setup.uses');
+  rejects({ source, publish: { lines }, install: { addToPath: 'bin' }, setup: { action: 'actions/setup-jq', versionInput: 'version' } }, 'tools/jq/tool.json: setup is for tool-cache tools; a plain tool (install.addToPath) is ready to use');
+});
+
 test('version lines are validated (D41)', () => {
   const java = (lines) => parseToolDefinition('java', { source: { datasource: 'java-version' }, publish: { lines } });
   const bad = (lines, message) => assert.throws(() => java(lines), { message: `tools/java/tool.json: ${message}` });
