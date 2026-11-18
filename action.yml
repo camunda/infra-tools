@@ -40,7 +40,7 @@ runs:
     shell: bash
     env:
       TOOLS: ${{ inputs.tools }}
-      CACHE_TOOLS: ${{ inputs.tool-cache }}
+      TOOL_CACHE_TOOLS: ${{ inputs.tool-cache }}
       MODE: ${{ inputs.mode }}
       TOKEN: ${{ inputs.token }}
       INDEX: ${{ inputs.index }}

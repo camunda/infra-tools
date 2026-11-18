@@ -108,7 +108,7 @@ function action({ tools = '', toolCacheTools = '', env = {}, bash = 'bash', setu
       GITHUB_STEP_SUMMARY: files.summary,
       GITHUB_WORKSPACE: join(runner, 'workspace'),
       TOOLS: tools,
-      CACHE_TOOLS: toolCacheTools,
+      TOOL_CACHE_TOOLS: toolCacheTools,
       TOKEN,
       INDEX: `${registry.host}/${REPOSITORY}:test-tools`,
       INFRA_TOOLS_REGISTRY_SCHEME: 'http',
