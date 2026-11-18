@@ -44,14 +44,17 @@ export function toolRelease({ tool, recorded: p, layers, digest, image, reposito
 }
 
 // The annotation of a tool image's index holding its build commit, set by scripts/build.mjs (build/docker-bake.hcl).
-export const BUILD_COMMIT = 'org.opencontainers.image.revision';
+const BUILD_COMMIT ='org.opencontainers.image.revision';
 
 // The tool release of a recorded tool version, from its tool image in registry (Registry): layers, digest and build commit.
-// null when the tool image has no build commit (pushed before scripts/build.mjs set it): with no commit to tag, it gets no
-// tool release.
+// Fails when the tool image has no build commit (pushed before scripts/build.mjs set it): with no commit to tag, it would get
+// no tool release; a revision bump builds it again with one.
 export async function imageToolRelease({ tool, recorded, registry, repository }) {
   const commit = (await registry.manifest(recorded.tag)).annotations?.[BUILD_COMMIT];
-  if (!commit) return null;
+  if (!commit) {
+    const fix = `bump the revision of ${tool.name} ${recorded.version} in tools/${tool.name}/tool.json to build it again with one`;
+    throw new Error(`${recorded.tag}: its tool image has no build commit (${BUILD_COMMIT} annotation), so no tool release; ${fix}`);
+  }
   const layers = await registry.toolImageLayers(recorded.tag);
   return toolRelease({ tool, recorded, layers, digest: await registry.digest(recorded.tag), image: registry.repository, repository, commit });
 }

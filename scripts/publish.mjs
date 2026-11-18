@@ -1,15 +1,15 @@
 // Usage: node publish.mjs --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]
 // Reconciler tool releases (spec §5.3, step 3; §5.5): creates the tool release of every tool version in <out>/tool-releases.json
 // (record.mjs; default build/out/reconcile), tagged on the build commit its tool image carries (lib/tool-release.mjs). A tool
-// image without one gets no tool release, with a workflow warning; the version is still recorded. A tool release that exists
-// is left as it is. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN).
+// image without one fails the run before its record commit. A tool release that exists is left as it is. Uses gh and its token
+// (GH_TOKEN or GITHUB_TOKEN).
 import { execFileSync } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { reconcilerOptions } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
 import { readToolDefinition } from './lib/repository.mjs';
-import { BUILD_COMMIT, imageToolRelease } from './lib/tool-release.mjs';
+import { imageToolRelease } from './lib/tool-release.mjs';
 
 const values = reconcilerOptions('publish.mjs', { repository: '<owner>/<name>' });
 
@@ -33,10 +33,6 @@ for (const p of toolReleases) {
     continue;
   }
   const release = await imageToolRelease({ tool: await readToolDefinition(p.tool), recorded: p, registry, repository: values.repository });
-  if (!release) {
-    console.log(`::warning title=No tool release::${p.tag}: its tool image has no build commit (${BUILD_COMMIT} annotation), so no tool release`);
-    continue;
-  }
   const created = JSON.parse(gh(JSON.stringify(release), '--method', 'POST', `repos/${values.repository}/releases`, '--input', '-'));
   console.log(`${p.tag}: tool release created, ${created.html_url}`);
 }

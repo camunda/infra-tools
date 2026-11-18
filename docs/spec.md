@@ -194,7 +194,7 @@ Script: `pull-request.mjs` (plan, warnings and comment; the build jobs run `buil
 
 Tool releases:
 
-- Created by the reconciler when it publishes a tool image; tag `<tool>-<version>-r<revision>` on the commit the layers were built from (the tool image's build commit annotation, whichever run or workflow pushed it), never marked latest (GitHub shows the newest one as latest until the first `X.Y.Z` release exists). A tool image without that annotation (pushed before it was set) gets no tool release, with a workflow warning; the catalog still records it.
+- Created by the reconciler when it publishes a tool image; tag `<tool>-<version>-r<revision>` on the commit the layers were built from (the tool image's build commit annotation, whichever run or workflow pushed it), never marked latest (GitHub shows the newest one as latest until the first `X.Y.Z` release exists). A tool image without that annotation (pushed before it was set) fails the run before its record commit; a revision bump builds it again with one.
 - Content: upstream project link, usage snippet (action and selector), tool cache path, layer digest and size per platform, image digest, line, revision and build commit. `publish.mjs --update` rewrites existing releases and moves their tag.
 
 Releases (release-please, D25):

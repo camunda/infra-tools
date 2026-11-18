@@ -7,7 +7,8 @@
     "lines": {
       "21": {
         "from": "21.0.13+9.0.LTS",
-        "reason": "camunda/camunda ci.yml: setup-java java-version 21"
+        "revisions": { "21.0.13+9.0.LTS": 2 },
+        "reason": "camunda/camunda ci.yml: setup-java java-version 21; r2 builds 21.0.13+9.0.LTS again with its build commit, for its tool release"
       }
     }
   },

@@ -80,7 +80,7 @@ const fake = new FakeRegistry();
 before(() => fake.start());
 after(() => fake.stop());
 
-test('a tool release is tagged on the build commit its tool image carries; a tool image without one gets no tool release', async () => {
+test('a tool release is tagged on the build commit its tool image carries; a tool image without one fails the run', async () => {
   const registry = new Registry(fake.repository, { token: TOKEN, scheme: 'http' });
   const commit = 'fedcba9876543210fedcba9876543210fedcba98';
   const recorded = { tool: 'maven', version: '3.9.16', line: '3.9', revision: 2, tag: 'maven-3.9.16-r2', upstream: null };
@@ -91,5 +91,7 @@ test('a tool release is tagged on the build commit its tool image carries; a too
   assert.equal(r.body.split('\n').at(-1), `Image \`${fake.repository}:maven-3.9.16-r2@${digest}\`, line \`3.9\`, revision 2, built from camunda/infra-tools@fedcba9.`);
 
   fake.addToolImage('maven-3.9.15-r1', layers);
-  assert.equal(await imageToolRelease({ tool: maven, recorded: { ...recorded, version: '3.9.15', revision: 1, tag: 'maven-3.9.15-r1' }, registry, repository: 'camunda/infra-tools' }), null);
+  await assert.rejects(imageToolRelease({ tool: maven, recorded: { ...recorded, version: '3.9.15', revision: 1, tag: 'maven-3.9.15-r1' }, registry, repository: 'camunda/infra-tools' }), {
+    message: 'maven-3.9.15-r1: its tool image has no build commit (org.opencontainers.image.revision annotation), so no tool release; bump the revision of maven 3.9.15 in tools/maven/tool.json to build it again with one',
+  });
 });
