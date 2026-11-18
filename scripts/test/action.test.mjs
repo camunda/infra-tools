@@ -54,6 +54,8 @@ before(async () => {
     }
   }
   registry.addIndex('test-tools', entries);
+  // An index whose maven 3.9.16 is on linux/amd64 only.
+  registry.addIndex('amd64-only-tools', entries.filter((e) => !(e.version === '3.9.16' && e.platform === 'linux/arm64')));
 });
 
 after(async () => {
@@ -73,9 +75,9 @@ beforeEach(async () => {
 });
 
 // Runs the action like the composite step of action.yml does, with the runner's environment.
-function action({ tools = '', env = {}, bash = 'bash' } = {}) {
+function action({ tools = '', env = {}, bash = 'bash', setup = SETUP } = {}) {
   const files = { output: join(runner, 'output'), path: join(runner, 'path'), summary: join(runner, 'summary') };
-  const child = spawn(bash, [SETUP], {
+  const child = spawn(bash, [setup], {
     env: {
       PATH: process.env.PATH,
       HOME: runner,
@@ -269,7 +271,7 @@ ${Object.entries(inputs)
   .join('')}`;
 
 // The real HOME, for a yq installed by a version manager (asdf shims read ~/.tool-versions).
-const validate = (env = {}) => action({ env: { MODE: 'validate', HOME: process.env.HOME, ...env } });
+const validate = (env = {}, options = {}) => action({ ...options, env: { MODE: 'validate', HOME: process.env.HOME, ...env } });
 
 test('mode: validate passes the selectors of every workflow and local action, and installs nothing', async () => {
   await repositoryFile(
@@ -307,6 +309,48 @@ test('mode: validate passes the selectors of every workflow and local action, an
   assert.deepEqual(await readdir(toolCache()), []);
   assert.equal(registry.requests.filter((r) => r.includes('/blobs/')).length, 0);
   assert.equal(result.outputs.versions, '{}');
+});
+
+test('mode: validate fails with an annotation on the file for each selector that matches no version on a platform', async () => {
+  await repositoryFile('.github/workflows/ci.yml', step({ tools: ['maven@3.9', 'maven@3.10', 'maven@99'] }));
+  await repositoryFile('.github/actions/build/action.yml', `runs:\n  using: composite\n  steps:\n  - uses: camunda/infra-tools@v1\n    with:\n      tools: maven@3.9.16\n`);
+  const result = await validate({ INDEX: `${registry.host}/${REPOSITORY}:amd64-only-tools` });
+  assert.notEqual(result.status, 0);
+  const index = `${registry.host}/${REPOSITORY}:amd64-only-tools`.replaceAll('.', '\\.');
+  const errors = result.log.split('\n').filter((l) => l.startsWith('::error'));
+  assert.equal(errors.length, 3, result.log);
+  assert.match(errors[0], new RegExp(`^::error file=\\.github/workflows/ci\\.yml::infra-tools: maven@3\\.9 matches no version in ${index} on linux/arm64$`));
+  assert.match(errors[1], new RegExp(`^::error file=\\.github/workflows/ci\\.yml::infra-tools: maven@99 matches no version in ${index} on linux/amd64, linux/arm64$`));
+  assert.match(errors[2], new RegExp(`^::error file=\\.github/actions/build/action\\.yml::infra-tools: maven@3\\.9\\.16 matches no version in ${index} on linux/arm64$`));
+  assert.match(result.log, /^\.github\/workflows\/ci\.yml: maven@3\.10: 3\.10\.1 on linux\/amd64, 3\.10\.1 on linux\/arm64$/m);
+  assert.deepEqual(await readdir(toolCache()), []);
+});
+
+test('mode: validate fails on a plain tool listed under tool-cache, naming the right input', async () => {
+  await repositoryFile('.github/workflows/ci.yml', step({ 'tool-cache': ['maven@3'] }));
+  const result = await validate();
+  assert.notEqual(result.status, 0);
+  assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: maven is a plain tool: list it under tools, not tool-cache$/m);
+});
+
+test('mode: validate fails on a tool-cache tool listed under tools, naming the right input', async () => {
+  // A copy of the action with a tool-cache tool definition (no addToPath).
+  const action = join(runner, 'action');
+  await mkdir(join(action, 'scripts/action'), { recursive: true });
+  await writeFile(join(action, 'scripts/action/setup.sh'), await readFile(SETUP));
+  await mkdir(join(action, 'tools/java'), { recursive: true });
+  await writeFile(join(action, 'tools/java/tool.json'), JSON.stringify({ install: { cacheFolder: 'Java_Temurin-Hotspot_jdk' } }));
+  await repositoryFile('.github/workflows/ci.yml', step({ tools: ['java@21'] }));
+  const result = await validate({}, { setup: join(action, 'scripts/action/setup.sh') });
+  assert.notEqual(result.status, 0);
+  assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: java is a tool-cache tool: list it under tool-cache, not tools$/m);
+});
+
+test('mode: validate fails on an unknown tool', async () => {
+  await repositoryFile('.github/workflows/ci.yml', step({ tools: ['mavne@3'] }));
+  const result = await validate();
+  assert.notEqual(result.status, 0);
+  assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: unknown tool 'mavne'; tools: .*\bmaven\b/m);
 });
 
 test('mode: validate fails on a workflow it cannot read', async () => {
