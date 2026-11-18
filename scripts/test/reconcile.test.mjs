@@ -35,18 +35,33 @@ test('a run records every version whose tool image exists and that the catalog l
   ]);
   assert.deepEqual(run.catalogs.node.map((e) => [e.version, e.revision, e.retired ?? false]), [['24.19.0', 1, true], ['26.11.1', 2, false], ['26.11.2', 1, false]]);
   assert.deepEqual(run.catalogs.maven, catalogs.maven);
-  assert.equal(commitMessage(run.changes), [
-    'fix(node): republish 26.11.1 (r2)',
-    '',
-    'feat(node): publish 26.11.2',
-    '',
-    'feat(node)!: retire 24.19.0',
-    '',
-  ].join('\n'));
+  assert.deepEqual(run.changes, [
+    { type: 'fix', tool: 'node', text: 'republish 26.11.1 (r2)' },
+    { type: 'feat', tool: 'node', text: 'publish 26.11.2' },
+    { type: 'feat', breaking: true, tool: 'node', text: 'retire 24.19.0' },
+  ]);
 
   const again = recordRun({ tools: [maven, node], catalogs: run.catalogs, plans, now });
   assert.deepEqual([again.toolReleases, again.changes], [[], []], 'a second run records nothing');
-  assert.equal(commitMessage(again.changes), '');
+});
+
+// release-please reads each nested commit block as one more commit (googleapis/release-please src/commit.ts, splitMessages):
+// unlike blank-line-separated entries, a breaking entry (feat(node)!) is kept apart.
+test('the record commit has one changelog entry per change: the first as subject, the others as nested commits', () => {
+  const change = (type, text, breaking = false) => ({ type, tool: 'node', text, breaking });
+  assert.equal(commitMessage([change('fix', 'republish 26.11.1 (r2)'), change('feat', 'publish 26.11.2'), change('feat', 'retire 24.19.0', true)]), [
+    'fix(node): republish 26.11.1 (r2)',
+    '',
+    'BEGIN_NESTED_COMMIT',
+    'feat(node): publish 26.11.2',
+    'END_NESTED_COMMIT',
+    'BEGIN_NESTED_COMMIT',
+    'feat(node)!: retire 24.19.0',
+    'END_NESTED_COMMIT',
+    '',
+  ].join('\n'));
+  assert.equal(commitMessage([change('feat', 'publish 26.11.2')]), 'feat(node): publish 26.11.2\n');
+  assert.equal(commitMessage([]), '', 'no change, no commit');
 });
 
 test('a catalog version whose tag is gone fails the run instead of being published again', async () => {
