@@ -1,0 +1,15 @@
+{
+  "source": {
+    "datasource": "node-version",
+    "versioning": "semver",
+    "extractVersion": "^v(?<version>.+)$"
+  },
+  "publish": {
+    "lines": {
+      "26": {
+        "versions": ["26.13.1"],
+        "reason": "camunda/camunda ci.yml: setup-node node-version 26; one fixed version until the reconciler publishes the line"
+      }
+    }
+  }
+}

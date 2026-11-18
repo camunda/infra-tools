@@ -1,0 +1,21 @@
+{
+  "source": {
+    "datasource": "java-version",
+    "packageName": "java-jdk?os=linux&architecture={arch}"
+  },
+  "publish": {
+    "lines": {
+      "21": {
+        "versions": ["21.0.13+9.0.LTS"],
+        "reason": "camunda/camunda ci.yml: setup-java java-version 21; one fixed version until the reconciler publishes the line"
+      }
+    }
+  },
+  "install": {
+    "cacheFolder": "Java_Temurin-Hotspot_jdk",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "aarch64"
+    }
+  }
+}
