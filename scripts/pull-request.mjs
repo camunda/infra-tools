@@ -77,7 +77,7 @@ const preview = previewComment({ builds, warnings, notes });
 if (preview !== null) await writeFile(join(values.out, 'comment.md'), preview);
 
 if (values.comment) {
-  const comments = JSON.parse(ghApi('','--paginate', '--slurp', `repos/${values.repository}/issues/${values.comment}/comments`)).flat();
+  const comments = JSON.parse(ghApi('', '--paginate', '--slurp', `repos/${values.repository}/issues/${values.comment}/comments`)).flat();
   const update = previewCommentUpdate(comments, preview);
   if (update) {
     const path = update.id ? `issues/comments/${update.id}` : `issues/${values.comment}/comments`;
