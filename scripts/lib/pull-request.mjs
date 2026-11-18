@@ -4,9 +4,7 @@ import { mergeCatalog } from './catalog.mjs';
 import { planTool } from './plan.mjs';
 import { buildIndex, releaseNotes } from './release.mjs';
 import { PLATFORMS } from './tool-definition.mjs';
-import { compareVersions } from './versions.mjs';
-
-const major = (version) => version.match(/^\d+/)?.[0] ?? version;
+import { compareVersions, majorOf } from './versions.mjs';
 
 // Files every tool version is built or tested with (build/docker-bake.hcl, scripts/build.mjs).
 const SHARED_BUILD = ['build/', 'scripts/build.mjs', 'scripts/lib/build.mjs'];
@@ -50,13 +48,13 @@ export async function checkPullRequest({ tools, baseTools, changedFiles, lookup,
     }
     const latest = new Map();
     for (const v of published) {
-      const m = major(v.version);
+      const m = majorOf(v.version);
       if (!latest.has(m) || compareVersions(v.version, latest.get(m)) > 0) latest.set(m, v.version);
     }
     for (const v of plan.versions) {
       let reason;
       if (v.decision === 'publish') reason = `planned: ${v.reason}`;
-      else if (latest.get(major(v.version)) === v.version) reason = `latest published of major ${major(v.version)}`;
+      else if (latest.get(majorOf(v.version)) === v.version) reason = `latest published of major ${majorOf(v.version)}`;
       else continue;
       builds.push({ tool: tool.name, version: v.version, tag: buildTarget(tool, v.version).tag, reason });
     }

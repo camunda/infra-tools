@@ -24,6 +24,9 @@ export function compareVersions(a, b) {
 
 export const sortVersions = (versions) => [...versions].sort(compareVersions);
 
+// The major of a version, its first number: 21 for 21.0.13+5 and 21+35.
+export const majorOf = (version) => numbers(String(version))[0];
+
 // Whether a version belongs to a line key: a major ("21" holds 21.0.13+5 and 21+35) or a minor ("1.25" holds 1.25.12).
 export const inLine = (version, key) => version === key || ['.', '+', '-'].some((s) => version.startsWith(`${key}${s}`));
 
