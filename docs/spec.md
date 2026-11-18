@@ -149,7 +149,7 @@ Each version belongs to exactly one line: lines never overlap (`26` and `26.11` 
 }
 ```
 
-Lines (D41), per upstream version: find its line (the explicit line it belongs to, else `"*"` from its `from` on, else none → skip); `"retired": "all"`, `ignoredVersions` or `retired` → skip; in `versions` or `revisions` → publish (no stability or `minAge` check); older than `from` or no `from` → skip; unstable → skip; newer than `minAge` → wait; otherwise publish. Validation rejects unknown options, line keys that are not a major, a minor or `"*"`, empty lines, line options naming versions outside their line, `versions` at or above `from`, `"*"` without `from` or with `versions` or `"retired": "all"`, other options next to `"retired": "all"`, nested lines and lines at or above `"*".from`. The catalog, index annotations and release notes record each version's line.
+Lines (D41), per upstream version: find its line (the explicit line it belongs to, else `"*"` from its `from` on, else none → skip); `"retired": "all"`, `ignoredVersions` or `retired` → skip; in `versions` or `revisions` → publish (no stability or `minAge` check); older than `from` or no `from` → skip; unstable → skip; newer than `minAge` → wait; otherwise publish. Validation rejects unknown options, line keys that are not a major, a minor or `"*"`, empty lines (none of `from`, `versions`, `revisions` or `retired`), line options naming versions outside their line, `versions` at or above `from`, `"*"` without `from` or with `versions` or `"retired": "all"`, other options next to `"retired": "all"`, nested lines and lines at or above `"*".from`. The catalog, index annotations and release notes record each version's line.
 
 - Build stages (`build/tool.Dockerfile`): `builder` image (build platform, never published) → `install` stage: `install-tool` runs `install.sh` with `VERSION`, `TARGETARCH`, `ARCH` (tool cache arch folder) and `DEST`, then marks `DEST` complete → `FROM scratch` tool image holding `/opt/hostedtoolcache/<cacheFolder>/<folder version>/<arch>` (D34).
 - Test stage (`build/test.Dockerfile`): Ubuntu 24.04 on the target platform with the packages runners have (`python3`, …), layer copied in, `test.sh` run with `VERSION` and `TOOL_DIR`; never published.
@@ -259,7 +259,7 @@ Workflows follow the infra team's reference repository, [`camunda/infra-services
 | New tool | PR adds `tools/<tool>/` (`tool.json`, `install.sh`, `test.sh`) → PR builds and tests it → merge → reconciler publishes. |
 | Override | PR bumps the version's revision in its line → reconciler publishes the new tag → next release lists it under "Replaced". |
 | Retire | PR adds the version to its line's `retired` (or `"retired": "all"`) → bot records it (`feat!`) → next release removes it; older indexes keep it. |
-| Stop a line | PR removes the line's `from` (and `versions`) → nothing new is published for it; published versions stay. |
+| Stop a line | PR removes the line's `from` (and `versions`), or the whole line when it has no `retired` or `revisions` left → nothing new is published for it; published versions stay. |
 | Release | Daily: release PR merged if green → `X.Y.Z` → index, notes and assets. |
 | Consumer update | New release → Renovate bumps the action pins (release notes in the PR body) → selectors checked against the new `<tool>.json` → PR CI fails if a selector no longer matches. |
 

@@ -79,7 +79,8 @@ function validateLines(tool, fail) {
     for (const option of Object.keys(line)) {
       if (!LINE_OPTIONS.includes(option)) lineFail(`unknown option ${option}`);
     }
-    if (!Object.keys(line).length) lineFail('empty line; delete it, or set from, versions, revisions or retired');
+    // A line without these keeps nothing: reason documents, ignoredVersions only matters next to from.
+    if (key !== ANY && !['from', 'versions', 'revisions', 'retired'].some((o) => line[o] !== undefined)) lineFail('empty line; delete it, or set from, versions, revisions or retired');
     if (line.minAge !== undefined) check(lineFail, 'minAge', () => parseDuration(line.minAge));
     if (line.retired === 'all') {
       if (key === ANY) lineFail('"retired": "all" is not allowed on "*"; give its versions a line first');
