@@ -6,8 +6,8 @@
   "publish": {
     "lines": {
       "21": {
-        "versions": ["21.0.13+9.0.LTS"],
-        "reason": "camunda/camunda ci.yml: setup-java java-version 21; one fixed version until the reconciler publishes the line"
+        "from": "21.0.13+9.0.LTS",
+        "reason": "camunda/camunda ci.yml: setup-java java-version 21"
       }
     }
   },

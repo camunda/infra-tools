@@ -7,9 +7,9 @@
   "publish": {
     "lines": {
       "3.9": {
-        "versions": ["3.9.16"],
+        "from": "3.9.16",
         "revisions": { "3.9.16": 2 },
-        "reason": "camunda/camunda ./mvnw (maven-wrapper.properties); one fixed version until the reconciler publishes the line; r2 replaces the PoC build"
+        "reason": "camunda/camunda ./mvnw (maven-wrapper.properties); r2 replaces the PoC build"
       }
     }
   },
