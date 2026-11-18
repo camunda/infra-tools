@@ -6,20 +6,20 @@ import { compareVersions, sortVersions, tagFor } from './versions.mjs';
 // lookup: Renovate's getPkgReleases or a stand-in.
 export async function planTool(tool, { lookup = renovateLookup, tagExists, now = Date.now() }) {
   const scheme = await versioningFor(tool.source);
-  const releases = await upstreamReleases(tool, lookup);
+  const upstream = await upstreamVersions(tool, lookup);
   const pinned = Object.values(tool.publish.lines).flatMap((line) => [...(line.versions ?? []), ...Object.keys(line.revisions ?? {})]);
-  const notFound = pinned.filter((version) => !releases.has(version));
+  const notFound = pinned.filter((version) => !upstream.has(version));
   if (notFound.length) throw new Error(`${tool.name}: not found upstream: ${sortVersions(notFound).join(', ')}`);
   const versions = [];
-  for (const version of sortVersions(releases.keys())) {
+  for (const version of sortVersions(upstream.keys())) {
     const line = lineFor(tool, version);
     let [decision, reason] = decide(line, version, scheme);
-    const missing = PLATFORMS.filter((p) => !releases.get(version).platforms.has(p));
+    const missing = PLATFORMS.filter((p) => !upstream.get(version).platforms.has(p));
     if (decision === 'publish' && missing.length) [decision, reason] = ['wait', `missing on ${missing.join(', ')}`];
     if (decision === 'publish' && reason === 'new') {
       const minAge = line.minAge ?? tool.publish.minAge;
       // Some datasources (java-version, maven) give no release date: minAge cannot apply, and the reason says so.
-      const released = Date.parse(releases.get(version).releaseTimestamp);
+      const released = Date.parse(upstream.get(version).releaseTimestamp);
       if (Number.isNaN(released)) reason = 'new, no release date: minAge not applied';
       else if (now - released < parseDuration(minAge)) [decision, reason] = ['wait', `released less than ${minAge} ago`];
     }
@@ -35,9 +35,9 @@ export async function planTool(tool, { lookup = renovateLookup, tagExists, now =
   return { tool: tool.name, versions };
 }
 
-// Upstream releases by exact version, with the platforms they exist for. `{arch}` in the package name makes one lookup per
+// Upstream versions by exact version string, with the platforms they exist for. `{arch}` in the package name makes one lookup per
 // platform (with the tool cache arch folder); otherwise one lookup covers every platform.
-async function upstreamReleases(tool, lookup) {
+async function upstreamVersions(tool, lookup) {
   const { packageName } = tool.source;
   const lookups = packageName.includes('{arch}')
     ? PLATFORMS.map((platform) => [[platform], packageName.replaceAll('{arch}', archFolder(tool, platform))])
@@ -50,15 +50,15 @@ async function upstreamReleases(tool, lookup) {
       return result;
     }),
   );
-  const releases = new Map();
+  const upstream = new Map();
   results.forEach((result, i) => {
-    for (const release of result.releases) {
-      const entry = releases.get(release.version) ?? { ...release, platforms: new Set() };
+    for (const found of result.releases) {
+      const entry = upstream.get(found.version) ?? { ...found, platforms: new Set() };
       lookups[i][0].forEach((platform) => entry.platforms.add(platform));
-      releases.set(release.version, entry);
+      upstream.set(found.version, entry);
     }
   });
-  return releases;
+  return upstream;
 }
 
 // A version's line rule (D41), in order: no line, retired or ignored, pinned (no stability or minAge check), outside from,
