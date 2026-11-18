@@ -46,6 +46,8 @@ test('version lines are validated (D41)', () => {
   const bad = (lines, message) => assert.throws(() => java(lines), { message: `tools/java/tool.json: ${message}` });
   bad({ '21.x': { from: '21.0.1' } }, 'publish.lines.21.x: a line is a major ("21"), a minor ("1.25") or "*"');
   bad({ 21: {} }, 'publish.lines.21: empty line; delete it, or set from, versions, revisions or retired');
+  bad({ 21: { reason: 'stopped' } }, 'publish.lines.21: empty line; delete it, or set from, versions, revisions or retired');
+  bad({ 21: { ignoredVersions: ['21.0.1'], reason: 'stopped' } }, 'publish.lines.21: empty line; delete it, or set from, versions, revisions or retired');
   bad({ 21: { from: '21.0.12', start: '21.0.1' } }, 'publish.lines.21: unknown option start');
   bad({ 21: { from: '22.0.0' } }, 'publish.lines.21: from 22.0.0 is not in line 21');
   bad({ 21: { versions: ['22.0.1'] } }, 'publish.lines.21: versions 22.0.1 is not in line 21');
@@ -69,7 +71,6 @@ test('version lines are validated (D41)', () => {
   const ok = java({
     17: { retired: 'all', reason: 'end of life' },
     21: { from: '21.0.12', versions: ['21.0.11+9'], ignoredVersions: ['21.0.12+8.0.LTS'], revisions: { '21.0.12+101.0.LTS': 2 }, minAge: '6 hours' },
-    24: { reason: 'stopped' },
     25: { reason: 'stopped', retired: ['25.0.1+8'] },
     '*': { from: '27.0.0', ignoredVersions: ['27.0.1+3'] },
   });
