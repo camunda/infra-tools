@@ -49,3 +49,13 @@ test('a line publishes its pinned versions and its versions from its from on, no
   assert.equal(buildTarget(maven, '3.11.0').tag, 'maven-3.11.0-r1');
   assert.equal(buildTarget(java, '21.0.12+8').line, '21');
 });
+
+test('a dry run also builds a published version the tool definition no longer publishes, with its catalog line and revision', () => {
+  const published = { version: '3.8.9', line: '3.8', revision: 2, tag: 'maven-3.8.9-r2' };
+  const target = buildTarget(maven, '3.8.9', { published });
+  assert.deepEqual([target.line, target.revision, target.tag], ['3.8', 2, 'maven-3.8.9-r2']);
+  assert.equal(buildTarget(maven, '3.9.16', { published: { version: '3.9.16', line: '3.9', revision: 1, tag: 'maven-3.9.16-r1' } }).tag, 'maven-3.9.16-r1');
+  // Retired versions and retired catalog entries are never built.
+  assert.throws(() => buildTarget(maven, '3.10.1', { published: { version: '3.10.1', line: '*', revision: 1, tag: 'maven-3.10.1-r1' } }), { message: 'maven 3.10.1 is retired in line * of tools/maven/tool.json' });
+  assert.throws(() => buildTarget(maven, '3.8.9', { published: { ...published, retired: true } }), { message: 'maven 3.8.9 is in no version line of tools/maven/tool.json' });
+});

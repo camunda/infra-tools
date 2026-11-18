@@ -1,9 +1,8 @@
 // Pull request checks (spec §5.4): what a PR changing tools or their build would publish, before it is merged.
-import { buildTarget } from './build.mjs';
 import { mergeCatalog } from './catalog.mjs';
 import { planTool } from './plan.mjs';
 import { buildIndex, releaseNotes } from './release.mjs';
-import { PLATFORMS } from './tool-definition.mjs';
+import { isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions, majorOf } from './versions.mjs';
 
 // Files every tool version is built or tested with (build/docker-bake.hcl, scripts/build.mjs).
@@ -29,7 +28,8 @@ function imageFiles(tool, files, base) {
 // the index and version of the latest release (none: { index: [] }). toolImageLayers(tag): the layers of a published tool
 // image (Registry.toolImageLayers). repository: owner/name, for tool release links.
 // Returns:
-// - builds: the dry run, the planned versions of every changed tool plus its latest published version per major;
+// - builds: the dry run, the planned versions of every changed tool plus its latest published version per major (catalog
+//   entries, built by scripts/build.mjs even when the tool definition no longer publishes them);
 // - warnings: published versions whose build files changed without a revision bump (published tool images never change);
 // - notes: the release notes of the next release once the planned versions are published, or null when no tool changed.
 export async function checkPullRequest({ tools, baseTools, changedFiles, plan: planOptions, catalogs, previousRelease, toolImageLayers, repository }) {
@@ -41,24 +41,25 @@ export async function checkPullRequest({ tools, baseTools, changedFiles, plan: p
   for (const tool of changedTools) {
     const plan = await planTool(tool, planOptions);
     planned[tool.name] = plan.versions.filter((v) => v.decision === 'publish');
-    const published = plan.versions.filter((v) => v.reason === 'published');
+    const plannedVersions = new Set(planned[tool.name].map((v) => v.version));
+    // A version stays available to consumers until it is retired, even out of every line or delisted upstream: published
+    // versions come from the catalog, not the plan. A planned revision replaces its published tool image.
+    const published = (catalogs[tool.name] ?? []).filter((e) => !e.retired && !isRetired(tool, e.version) && !plannedVersions.has(e.version));
     const changed = imageFiles(tool, toolFiles(tool, changedFiles), baseTools[tool.name]);
     if (changed.length && published.length) {
-      const versions = published.map((v) => `${v.version} (${buildTarget(tool, v.version).tag})`);
+      const versions = published.map((e) => `${e.version} (${e.tag})`);
       warnings.push(`${tool.name}: ${changed.join(', ')} changed, but these published versions keep their tool image unless their revision is bumped: ${versions.join(', ')}`);
     }
     const latest = new Map();
-    for (const v of published) {
-      const m = majorOf(v.version);
-      if (!latest.has(m) || compareVersions(v.version, latest.get(m)) > 0) latest.set(m, v.version);
+    for (const e of published) {
+      const m = majorOf(e.version);
+      if (!latest.has(m) || compareVersions(e.version, latest.get(m).version) > 0) latest.set(m, e);
     }
-    for (const v of plan.versions) {
-      let reason;
-      if (v.decision === 'publish') reason = `planned: ${v.reason}`;
-      else if (latest.get(majorOf(v.version)) === v.version) reason = `latest published of major ${majorOf(v.version)}`;
-      else continue;
-      builds.push({ tool: tool.name, version: v.version, tag: buildTarget(tool, v.version).tag, reason });
-    }
+    const toolBuilds = [
+      ...planned[tool.name].map((v) => ({ tool: tool.name, version: v.version, tag: v.tag, reason: `planned: ${v.reason}` })),
+      ...[...latest].map(([m, e]) => ({ tool: tool.name, version: e.version, tag: e.tag, reason: `latest published of major ${m}` })),
+    ];
+    builds.push(...toolBuilds.sort((a, b) => compareVersions(a.version, b.version)));
   }
   if (!changedTools.length) return { builds, warnings, notes: null };
 
