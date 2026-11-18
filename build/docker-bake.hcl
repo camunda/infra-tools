@@ -1,13 +1,12 @@
 # Build and test of one tool version (scripts/build.mjs sets the variables from the tool definition, spec §5.2).
-# `test` runs the tool's test.sh on every platform; `tool` is the FROM scratch tool image pushed to the registry.
+# `tool` writes the FROM scratch tool image to the OCI layout LAYOUT; `test` runs the tool's test.sh on every platform against
+# that layout, which scripts/build.mjs then pushes as it is.
 variable "TOOL" {}
 variable "VERSION" {}
 variable "FOLDER_VERSION" {}
 variable "CACHE_FOLDER" {}
 variable "ARCH_FOLDERS" {}
-variable "IMAGE" {
-  default = ""
-}
+variable "LAYOUT" {}
 
 variable "PLATFORMS" {
   default = "linux/amd64,linux/arm64"
@@ -34,14 +33,13 @@ target "tool" {
   context    = "tools/${TOOL}"
   dockerfile = "../../build/tool.Dockerfile"
   contexts   = { builder = "target:builder" }
-  tags       = IMAGE == "" ? [] : [IMAGE]
-  output     = ["type=cacheonly"]
+  output     = ["type=oci,dest=${LAYOUT},tar=false"]
 }
 
 target "test" {
   inherits   = ["_args"]
   context    = "tools/${TOOL}"
   dockerfile = "../../build/test.Dockerfile"
-  contexts   = { tool = "target:tool" }
+  contexts   = { tool = "oci-layout://${LAYOUT}" }
   output     = ["type=cacheonly"]
 }

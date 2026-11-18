@@ -17,6 +17,7 @@ export class Registry {
   // scheme: http for tests only.
   constructor(repository, { token = process.env.GITHUB_TOKEN, scheme = 'https' } = {}) {
     const slash = repository.indexOf('/');
+    this.repository = repository;
     this.host = repository.slice(0, slash);
     this.name = repository.slice(slash + 1);
     this.base = `${scheme}://${this.host}/v2/${this.name}`;
@@ -79,10 +80,14 @@ export class Registry {
 
   // Pushes a manifest by tag, or by its digest without one.
   async putManifest(manifest, tag) {
-    const body = manifestBytes(manifest);
-    const reference = tag ?? sha256(body);
-    await this.request(`/manifests/${reference}`, { method: 'PUT', headers: { 'Content-Type': manifest.mediaType }, body, push: true, ok: [201] });
-    return sha256(body);
+    const bytes = manifestBytes(manifest);
+    return this.putManifestBytes(bytes, manifest.mediaType, tag ?? sha256(bytes));
+  }
+
+  // Pushes manifest bytes as they are, under a tag or their digest.
+  async putManifestBytes(bytes, mediaType, reference) {
+    await this.request(`/manifests/${reference}`, { method: 'PUT', headers: { 'Content-Type': mediaType }, body: bytes, push: true, ok: [201] });
+    return sha256(bytes);
   }
 
   async ensureBlob(bytes) {
