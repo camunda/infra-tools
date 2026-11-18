@@ -185,7 +185,7 @@ Jobs of `ci.yml` on pull requests, read only: nothing is pushed or published.
 
 - Plan and build in dry run: planned versions, plus the latest published version per major of every tool whose files changed (`tools/<tool>/`; the shared build, `build/` and `scripts/build.mjs`, changes every tool), built and tested for every platform without `--push`.
 - Warn when a published version's build files changed without a revision bump: its tool image files, not its tests (`test.sh`, `build/test.Dockerfile`), and `tool.json` only when its `install` block changed.
-- Comment the release notes the next release would produce: the latest release's index + the catalog + the planned versions − retired versions, compared with the latest release's index; fork PRs get it in the job summary only.
+- Comment the release notes the next release would produce: the latest release's index + the catalog + the planned versions − retired versions, compared with the latest release's index. One comment per PR, updated on each push, and updated to say so when a later push no longer changes tools; fork PRs get it in the job summary only.
 
 Script: `pull-request.mjs` (plan, warnings and comment; the build jobs run `build.mjs`).
 

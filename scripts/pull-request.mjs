@@ -1,22 +1,21 @@
 // Usage: node pull-request.mjs --image <registry>/<repository> --repository <owner>/<name> [--base <git ref>] [--out <dir>]
+//          [--comment <PR number>]
 // Checks of a pull request (lib/pull-request.mjs) against the PR's merge commit, whose first parent is the base (--base,
 // default HEAD^1). Reads only: upstream versions, and published tags and indexes in --image; never builds or pushes. Writes to
 // --out (default build/out/pull-request):
 // - builds.json: the tool versions to build and test in dry run (scripts/build.mjs without --push);
 // - comment.md: the PR comment, with the revision warnings and the release notes preview; not written when no tool changed.
-// Prints each warning as a workflow warning annotation.
+// Prints each warning as a workflow warning annotation. With --comment, also brings the release notes preview comment of that
+// PR up to date (lib/pull-request.mjs previewCommentUpdate), with gh and its token (GH_TOKEN or GITHUB_TOKEN).
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { checkPullRequest } from './lib/pull-request.mjs';
+import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
 import { Registry } from './lib/registry.mjs';
 import { readCatalog, readReleaseVersion, readToolDefinition, readToolNames, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
-
-// Marks the comment the workflow updates on each push.
-const MARKER = '<!-- infra-tools: pull request checks -->';
 
 const { values } = parseArgs({
   options: {
@@ -24,9 +23,10 @@ const { values } = parseArgs({
     repository: { type: 'string' },
     base: { type: 'string', default: 'HEAD^1' },
     out: { type: 'string', default: join(ROOT, 'build/out/pull-request') },
+    comment: { type: 'string' },
   },
 });
-if (!values.image || !values.repository) throw new Error('usage: node pull-request.mjs --image <registry>/<repository> --repository <owner>/<name> [--base <git ref>] [--out <dir>]');
+if (!values.image || !values.repository) throw new Error('usage: node pull-request.mjs --image <registry>/<repository> --repository <owner>/<name> [--base <git ref>] [--out <dir>] [--comment <PR number>]');
 
 const git = (...args) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' });
 const changedFiles = git('diff', '--name-only', values.base, 'HEAD').split('\n').filter(Boolean);
@@ -66,19 +66,16 @@ await mkdir(values.out, { recursive: true });
 await writeFile(join(values.out, 'builds.json'), `${JSON.stringify(builds, null, 2)}\n`);
 for (const w of warnings) console.log(`::warning title=Revision not bumped::${w}`);
 console.log(builds.length ? `dry run: ${builds.map((b) => `${b.tool} ${b.version} (${b.reason})`).join(', ')}` : 'dry run: nothing to build');
-if (notes !== null) {
-  const comment = [
-    MARKER,
-    '## Next release preview',
-    '',
-    ...warnings.flatMap((w) => ['> [!WARNING]', `> ${w}`, '']),
-    '**Dry run** (built and tested on every platform, never pushed):',
-    '',
-    ...(builds.length ? builds.map((b) => `- ${b.tool} ${b.version} \`${b.tag}\`: ${b.reason}`) : ['- nothing to build']),
-    '',
-    '**Release notes** of the next release, once the reconciler has published the planned versions:',
-    '',
-    notes,
-  ].join('\n');
-  await writeFile(join(values.out, 'comment.md'), comment);
+const preview = previewComment({ builds, warnings, notes });
+if (preview !== null) await writeFile(join(values.out, 'comment.md'), preview);
+
+if (values.comment) {
+  const gh = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
+  const comments = JSON.parse(gh('', '--paginate', '--slurp', `repos/${values.repository}/issues/${values.comment}/comments`)).flat();
+  const update = previewCommentUpdate(comments, preview);
+  if (update) {
+    const path = update.id ? `issues/comments/${update.id}` : `issues/${values.comment}/comments`;
+    gh(JSON.stringify({ body: update.body }), '--method', update.id ? 'PATCH' : 'POST', `repos/${values.repository}/${path}`, '--input', '-');
+  }
+  console.log(update ? `release notes preview comment ${update.id ? 'updated' : 'created'}` : 'release notes preview comment: none to post');
 }
