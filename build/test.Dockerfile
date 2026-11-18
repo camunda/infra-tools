@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
-# Runs tools/<tool>/test.sh against the tool image on the target platform, as on a runner; never published.
+# Runs tools/<tool>/test.sh against the tool image on the target platform and on one Ubuntu release runners use (UBUNTU, set
+# by build/docker-bake.hcl), as on a runner; never published.
 # Packages runners have that some tools need: a Java runtime for maven.
-FROM mirror.gcr.io/library/ubuntu:24.04
+ARG UBUNTU
+FROM mirror.gcr.io/library/ubuntu:${UBUNTU}
 # hadolint ignore=DL3008
 RUN apt-get update -y \
   && apt-get install -y --no-install-recommends ca-certificates openjdk-21-jre-headless \

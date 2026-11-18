@@ -45,10 +45,10 @@
   },
   packageRules: [
     {
-      // The test image runs tools on the Ubuntu release of the runners (spec §5.2); the builder image follows it.
-      // Move both when GitHub-hosted runners move to the next release.
-      description: "Ubuntu base images: stay on the runners' release",
-      matchFileNames: ["build/**"],
+      // The builder only downloads and unpacks tools: it stays on one release. The test image takes its releases from
+      // UBUNTU_RELEASES in build/docker-bake.hcl, maintained by hand (D58).
+      description: "Ubuntu builder image: stay on one release",
+      matchFileNames: ["build/builder.Dockerfile"],
       matchPackageNames: ["mirror.gcr.io/library/ubuntu"],
       allowedVersions: "/^24\\.04$/",
     },
