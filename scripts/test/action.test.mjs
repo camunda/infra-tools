@@ -2,22 +2,16 @@
 // status. The CI workflow (ci.yml) runs the same action on real runners against ghcr.io.
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { MEDIA_TYPES, ociIndex } from '../lib/oci-index.mjs';
+import { FakeRegistry, REPOSITORY, TOKEN } from './fake-registry.mjs';
 
 const SETUP = fileURLToPath(new URL('../action/setup.sh', import.meta.url));
-const REPOSITORY = 'camunda/infra-tools';
-const TOKEN = 'job-token';
 const ARCH_FOLDERS = { 'linux/amd64': 'x64', 'linux/arm64': 'arm64' };
-
-const sha256 = (bytes) => `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 
 // A maven tool image layer: opt/hostedtoolcache/maven/<version>/<arch>, marked complete, as build/tool.Dockerfile makes it.
 async function mavenLayer(dir, version, archFolder) {
@@ -30,18 +24,18 @@ async function mavenLayer(dir, version, archFolder) {
   return execFileSync('tar', ['czf', '-', '-C', root, 'opt']);
 }
 
-// Fake OCI registry: bearer token exchange as on ghcr.io, the test index, its manifests and the layers. Records every request.
-class FakeRegistry {
-  requests = [];
-  blobs = {};
-  failures = {}; // digest → number of 500 responses before serving it
-  corrupt = new Set(); // digests served with other bytes
+let work;
+let registry;
 
-  async start(layers) {
-    const entries = [];
-    for (const { version, platform, bytes } of layers) {
-      const digest = sha256(bytes);
-      this.blobs[digest] = bytes;
+// The test index: maven 3.9.16 and 3.10.1 on both platforms.
+before(async () => {
+  work = await mkdtemp(join(tmpdir(), 'infra-tools-action-'));
+  registry = new FakeRegistry();
+  await registry.start();
+  const entries = [];
+  for (const version of ['3.9.16', '3.10.1']) {
+    for (const [platform, archFolder] of Object.entries(ARCH_FOLDERS)) {
+      const bytes = await mavenLayer(work, version, archFolder);
       entries.push({
         platform,
         tool: 'maven',
@@ -51,78 +45,23 @@ class FakeRegistry {
         revision: 1,
         tag: `maven-${version}-r1`,
         cacheFolder: 'maven',
-        archFolder: ARCH_FOLDERS[platform],
+        archFolder,
         addToPath: 'bin',
-        digest,
+        digest: registry.addBlob(bytes),
         size: bytes.length,
         mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip',
       });
     }
-    const { index, manifests } = ociIndex(entries);
-    this.manifests = { 'test-tools': [MEDIA_TYPES.index, index] };
-    for (const [digest, manifest] of Object.entries(manifests)) this.manifests[digest] = [MEDIA_TYPES.manifest, manifest];
-    this.server = createServer((req, res) => this.handle(req, res));
-    await new Promise((resolve) => this.server.listen(0, '127.0.0.1', resolve));
-    this.host = `127.0.0.1:${this.server.address().port}`;
   }
-
-  handle(req, res) {
-    this.requests.push(req.url);
-    const url = new URL(req.url, `http://${this.host}`);
-    if (url.pathname === '/token') {
-      const basic = `Basic ${Buffer.from(`token:${TOKEN}`).toString('base64')}`;
-      if (req.headers.authorization !== basic || url.searchParams.get('scope') !== `repository:${REPOSITORY}:pull`) return res.writeHead(401).end();
-      return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ token: 'bearer-token' }));
-    }
-    if (req.headers.authorization !== 'Bearer bearer-token') {
-      const challenge = `Bearer realm="http://${this.host}/token",service="${this.host}",scope="repository:${REPOSITORY}:pull"`;
-      return res.writeHead(401, { 'WWW-Authenticate': challenge }).end();
-    }
-    const match = url.pathname.match(/^\/v2\/(.+)\/(manifests|blobs)\/(.+)$/);
-    if (!match || match[1] !== REPOSITORY) return res.writeHead(404).end();
-    const [, , kind, reference] = match;
-    if (kind === 'manifests') {
-      if (!this.manifests[reference]) return res.writeHead(404).end();
-      const [mediaType, json] = this.manifests[reference];
-      return res.writeHead(200, { 'Content-Type': mediaType }).end(JSON.stringify(json));
-    }
-    if (!this.blobs[reference]) return res.writeHead(404).end();
-    if (this.failures[reference] > 0) {
-      this.failures[reference]--;
-      return res.writeHead(500).end();
-    }
-    const bytes = this.corrupt.has(reference) ? Buffer.concat([this.blobs[reference], Buffer.from('x')]) : this.blobs[reference];
-    return res.writeHead(200, { 'Content-Type': 'application/octet-stream' }).end(bytes);
-  }
-
-  digestOf(version, platform) {
-    const [, index] = this.manifests['test-tools'];
-    const manifest = this.manifests[index.manifests.find((m) => `${m.platform.os}/${m.platform.architecture}` === platform).digest][1];
-    return manifest.layers.find((l) => l.annotations['io.camunda.infra-tools.version'] === version).digest;
-  }
-
-  stop() {
-    return new Promise((resolve) => this.server.close(resolve));
-  }
-}
-
-let work;
-let registry;
-
-before(async () => {
-  work = await mkdtemp(join(tmpdir(), 'infra-tools-action-'));
-  const layers = [];
-  for (const version of ['3.9.16', '3.10.1']) {
-    for (const platform of Object.keys(ARCH_FOLDERS)) layers.push({ version, platform, bytes: await mavenLayer(work, version, ARCH_FOLDERS[platform]) });
-  }
-  registry = new FakeRegistry();
-  await registry.start(layers);
+  registry.addIndex('test-tools', entries);
 });
 
 after(async () => {
   await registry.stop();
   await rm(work, { recursive: true, force: true });
 });
+
+const digestOf = (version, platform) => registry.indexEntries('test-tools').find((e) => e.version === version && e.platform === platform).digest;
 
 let runner;
 beforeEach(async () => {
@@ -234,14 +173,14 @@ test('an unknown tool fails and names the available tools', async () => {
 });
 
 test('a failed download is retried', async () => {
-  registry.failures[registry.digestOf('3.9.16', 'linux/amd64')] = 2;
+  registry.failures[digestOf('3.9.16', 'linux/amd64')] = 2;
   const result = await action({ tools: 'maven@3.9' });
   assert.equal(result.status, 0, result.log);
   assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
 });
 
 test('a layer that does not match its digest is never marked complete', async () => {
-  const digest = registry.digestOf('3.9.16', 'linux/amd64');
+  const digest = digestOf('3.9.16', 'linux/amd64');
   registry.corrupt.add(digest);
   try {
     const result = await action({ tools: 'maven@3.9' });
