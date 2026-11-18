@@ -14,7 +14,7 @@ export function buildTarget(tool, version, { published } = {}) {
   let revision = revisionOf(tool, version);
   const unpublished = unpublishedReason(tool, version, line);
   if (unpublished) {
-    if (!published || published.retired || isRetired(tool, version)) throw new Error(`${tool.name} ${version} ${unpublished} ${where}`);
+    if (!published || published.retired || isRetired(tool, version)) throw new Error(`${where}: ${tool.name} ${version} ${unpublished}`);
     ({ line: key, revision } = published);
   }
   const { cacheFolder, archFolders } = tool.install;
@@ -36,10 +36,10 @@ export function buildTarget(tool, version, { published } = {}) {
 
 // Why the tool definition does not publish a version, or undefined when it does.
 function unpublishedReason(tool, version, line) {
-  if (!line) return 'is in no version line of';
-  if (line.ignoredVersions?.includes(version)) return `is ignored in line ${line.key} of`;
-  if (isRetired(tool, version)) return `is retired in line ${line.key} of`;
+  if (!line) return 'is in no version line';
+  if (line.ignoredVersions?.includes(version)) return `is ignored in line ${line.key}`;
+  if (isRetired(tool, version)) return `is retired in line ${line.key}`;
   const pinned = line.versions?.includes(version) || line.revisions?.[version];
-  if (!pinned && !(line.from && compareVersions(version, line.from) >= 0)) return `is not published by line ${line.key} of`;
+  if (!pinned && !(line.from && compareVersions(version, line.from) >= 0)) return `is not published by line ${line.key}`;
   return undefined;
 }
