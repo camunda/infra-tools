@@ -10,3 +10,6 @@ rules:
         camunda/*: ref-pin
         # Everything else, actions/* included, by commit SHA: a tag can be force-pushed by a compromised upstream.
         "*": hash-pin
+  # `uses: $/` is rejected by actionlint 1.7.12 (rhysd/actionlint#711): the action tests keep `uses: ./` until it is supported.
+  self-repository:
+    disable: true

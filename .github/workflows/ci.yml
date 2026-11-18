@@ -1,0 +1,127 @@
+---
+name: CI
+
+on:
+  push:
+    branches:
+    - main
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Test index, filled by the Publish tool workflow until the first release.
+  INDEX: ghcr.io/camunda/infra-tools:tracer-tools
+
+jobs:
+  action-linux:
+    name: Test action (${{ matrix.runner }})
+    permissions:
+      contents: read
+      packages: read # pull the index and the tool images
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-latest, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Install maven
+      id: install
+      uses: ./
+      with:
+        tools: maven@3
+        index: ${{ env.INDEX }}
+
+    - name: Check maven is installed and on PATH
+      env:
+        VERSIONS: ${{ steps.install.outputs.versions }}
+      run: |
+        version="$(jq -er .maven <<<"${VERSIONS}")"
+        [[ "$(jq -c 'keys' <<<"${VERSIONS}")" == '["maven"]' ]]
+        arch="$(tr '[:upper:]' '[:lower:]' <<<"${RUNNER_ARCH}")"
+        test -f "${RUNNER_TOOL_CACHE}/maven/${version}/${arch}.complete"
+        [[ "$(command -v mvn)" == "${RUNNER_TOOL_CACHE}/maven/${version}/${arch}/bin/mvn" ]]
+        mvn --version | grep -F "Apache Maven ${version} "
+
+    - name: Install maven again, with an unreachable index
+      id: present
+      uses: ./
+      with:
+        tools: maven@3
+        index: 127.0.0.1:1/camunda/infra-tools:none
+
+    - name: Install an unknown version
+      id: unknown
+      continue-on-error: true
+      uses: ./
+      with:
+        tools: maven@99
+        index: ${{ env.INDEX }}
+
+    - name: Check a present tool needs no network and an unknown version fails
+      env:
+        INSTALLED: ${{ steps.install.outputs.versions }}
+        PRESENT: ${{ steps.present.outputs.versions }}
+        UNKNOWN: ${{ steps.unknown.outcome }}
+      run: |
+        [[ "${PRESENT}" == "${INSTALLED}" ]]
+        [[ "${UNKNOWN}" == failure ]]
+
+  action-macos:
+    name: Test action (macos-latest)
+    permissions:
+      contents: read
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Install maven
+      id: install
+      uses: ./
+      with:
+        tools: maven@3
+        index: ${{ env.INDEX }}
+
+    - name: Check nothing is installed
+      env:
+        VERSIONS: ${{ steps.install.outputs.versions }}
+      run: '[[ "${VERSIONS}" == "{}" ]]'
+
+  check:
+    name: Check CI
+    if: always()
+    permissions: {}
+    needs:
+    - action-linux
+    - action-macos
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Check results
+      env:
+        ERROR: >-
+          ${{
+            contains(needs.*.result, 'failure') ||
+            contains(needs.*.result, 'cancelled')
+          }}
+      run: |
+        if [ "$ERROR" == "true" ]; then
+          echo "Some CI jobs have failed or been cancelled."
+          exit 1
+        fi
+        echo "All CI jobs passed or were skipped."

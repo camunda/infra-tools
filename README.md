@@ -8,6 +8,20 @@ Work in progress: phase 1 is tracked in [#7](https://github.com/camunda/infra-to
 - [Glossary](GLOSSARY.md)
 - [Architecture decisions](docs/adr/)
 
+## Publish a tool version by hand
+
+Until the reconciler publishes tool versions, the [Publish tool](.github/workflows/publish-tool.yml) workflow builds, tests and pushes the tool image of one version that its tool definition publishes, then adds it to an index (`ghcr.io/camunda/infra-tools:tracer-tools` by default):
+
+```sh
+gh workflow run publish-tool.yml -f tool=maven -f version=3.9.16
+```
+
+Build and test a tool version locally, for both platforms (needs a Buildx builder with the `docker-container` driver):
+
+```sh
+cd scripts && node build.mjs maven 3.9.16
+```
+
 ## Development
 
 Prerequisites: the Node.js version pinned in [`.tool-versions`](.tool-versions) (`asdf install`), [pre-commit](https://pre-commit.com) and `make`. `make help` lists the targets.

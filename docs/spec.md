@@ -86,7 +86,7 @@ infra-tools/
 │   ├── adr/                      # architecture decision records
 │   └── agents/                   # agent skills configuration
 ├── build/                        # image build: Bake and Dockerfiles (out/ gitignored)
-│   ├── docker-bake.hcl           # shared targets: builder, _line, _test
+│   ├── docker-bake.hcl           # targets of one tool version: builder, tool, test
 │   ├── builder.Dockerfile        # build-platform image where install.sh runs (download, install-tool)
 │   ├── tool.Dockerfile           # default tool build → FROM scratch tool image
 │   └── test.Dockerfile           # runs test.sh on the target platform
@@ -99,7 +99,7 @@ infra-tools/
     ├── renovate.json5
     ├── renovate-preset.json5     # for consumers
     ├── config/                   # release-please-config.json, .release-please-manifest.json
-    └── workflows/                # reconcile.yml, pr.yml, release.yml, release-merge.yml (Q15)
+    └── workflows/                # reconcile.yml, pr.yml, ci.yml (action tests), release.yml, release-merge.yml (Q15), publish-tool.yml (manual, until the reconciler)
 ```
 
 ### 5.2 Tool definition and build
