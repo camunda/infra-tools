@@ -432,7 +432,7 @@ test('mode: validate fails on a plain tool listed under tool-cache, naming the r
   assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: maven is a plain tool: list it under tools, not tool-cache$/m);
 });
 
-test('mode: validate fails on a tool-cache tool listed under tools, naming the right input', async () => {
+test('mode: validate fails on a tool-cache tool listed under tools, naming the right input and its setup-* step', async () => {
   // A copy of the action with a tool-cache tool definition (no addToPath).
   const action = join(runner, 'action');
   await mkdir(join(action, 'scripts/action'), { recursive: true });
@@ -442,7 +442,7 @@ test('mode: validate fails on a tool-cache tool listed under tools, naming the r
   await repositoryFile('.github/workflows/ci.yml', step({ tools: ['java@21'] }));
   const result = await validate({}, { setup: join(action, 'scripts/action/setup.sh') });
   assert.notEqual(result.status, 0);
-  assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: java is a tool-cache tool: list it under tool-cache, not tools$/m);
+  assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: java is a tool-cache tool: list it under tool-cache, not tools, and keep its setup-\* step$/m);
 });
 
 test('mode: validate fails on an unknown tool', async () => {

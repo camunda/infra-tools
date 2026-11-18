@@ -26,6 +26,8 @@ fail() {
   exit 1
 }
 
+# Linux platforms of the index; mode: validate checks selectors on each.
+platforms=(amd64 arm64)
 case "${RUNNER_ARCH:-}" in
 X64) arch=amd64 ;;
 ARM64) arch=arm64 ;;
@@ -50,6 +52,23 @@ layout() {
   jq -r --arg tool "$1" --arg arch "${arch}" '.install // {}
     | [.cacheFolder // $tool, (.archFolders // {amd64: "x64", arm64: "arm64"})[$arch], .addToPath // ""] | @tsv' \
     "${root}/tools/$1/tool.json"
+}
+
+# Why a tool's selector cannot be listed under an input (tools or tool-cache), or nothing when it can: an unknown tool, or
+# the wrong input. The tool definition decides the input (ADR 0006): with addToPath, a plain tool; without, a tool-cache
+# tool.
+selector_error() {
+  local input="$1" tool="$2" add_path
+  if [[ ! -f "${root}/tools/${tool}/tool.json" ]]; then
+    echo "unknown tool '${tool}'; tools: $(cd "${root}/tools" && echo *)"
+    return 0
+  fi
+  IFS=$'\t' read -r _ _ add_path < <(layout "${tool}")
+  if [[ -n "${add_path}" && "${input}" != tools ]]; then
+    echo "${tool} is a plain tool: list it under tools, not ${input}"
+  elif [[ -z "${add_path}" && "${input}" != tool-cache ]]; then
+    echo "${tool} is a tool-cache tool: list it under tool-cache, not ${input}, and keep its setup-* step"
+  fi
 }
 
 # Set by connect(): the index's registry host, its API base URL, the authorization header and the platform's index layers.
@@ -148,13 +167,13 @@ link_wrapper() {
 
 # mode: validate checks the selectors of the tools and tool-cache inputs of every infra-tools step in the repository's
 # workflows and local actions against the index on every platform, so an invalid one fails before merge; it installs
-# nothing. Each invalid selector gets an error annotation on its file.
-[[ "${MODE:-extract}" =~ ^(extract|validate)$ ]] || fail "unknown mode '${MODE}': use extract or validate"
-if [[ "${MODE:-extract}" == validate ]]; then
+# nothing and exits. Each invalid selector gets an error annotation on its file and fails the step.
+validate() {
   echo "versions={}" >>"${GITHUB_OUTPUT}"
   command -v yq >/dev/null || fail "mode: validate needs yq"
   cd "${GITHUB_WORKSPACE:?}"
-  declared=() # "<file>\t<input>\t<selector>"
+  local declared=() # "<file>\t<input>\t<selector>"
+  local file inputs declaration input selector tool want error found absent platform resolved candidates failed=0
   for file in .github/workflows/*.y*ml .github/actions/*/action.y*ml; do
     [[ -f "${file}" ]] || continue
     inputs="$(yq -r '.. | select(type == "!!map" and has("uses")) | select(.uses | test("^camunda/infra-tools@"))
@@ -169,33 +188,23 @@ if [[ "${MODE:-extract}" == validate ]]; then
     echo "::notice::infra-tools: no infra-tools step in .github/workflows or .github/actions, nothing to validate"
     exit 0
   fi
-  declare -A platform_layers
-  for platform in amd64 arm64; do
+  local -A platform_layers
+  for platform in "${platforms[@]}"; do
     connect "${platform}"
     platform_layers["${platform}"]="${layers}"
   done
-  failed=0
   for declaration in "${declared[@]}"; do
     IFS=$'\t' read -r file input selector <<<"${declaration}"
     tool="${selector%%@*}" want=""
     [[ "${selector}" == *@* ]] && want="${selector#*@}"
-    if [[ ! -f "${root}/tools/${tool}/tool.json" ]]; then
-      echo "::error file=${file}::infra-tools: unknown tool '${tool}'; tools: $(cd "${root}/tools" && echo *)"
-      failed=1
-      continue
-    fi
-    IFS=$'\t' read -r _ _ path_folder < <(layout "${tool}")
-    if [[ -n "${path_folder}" && "${input}" != tools ]]; then
-      echo "::error file=${file}::infra-tools: ${tool} is a plain tool: list it under tools, not ${input}"
-      failed=1
-      continue
-    elif [[ -z "${path_folder}" && "${input}" != tool-cache ]]; then
-      echo "::error file=${file}::infra-tools: ${tool} is a tool-cache tool: list it under tool-cache, not ${input}"
+    error="$(selector_error "${input}" "${tool}")"
+    if [[ -n "${error}" ]]; then
+      echo "::error file=${file}::infra-tools: ${error}"
       failed=1
       continue
     fi
     found="" absent=""
-    for platform in amd64 arm64; do
+    for platform in "${platforms[@]}"; do
       layers="${platform_layers[${platform}]}"
       mapfile -t candidates < <(published "${tool}")
       resolved="$(highest "${want}" "${candidates[@]}")"
@@ -213,7 +222,10 @@ if [[ "${MODE:-extract}" == validate ]]; then
     fi
   done
   exit "${failed}"
-fi
+}
+
+[[ "${MODE:-extract}" =~ ^(extract|validate)$ ]] || fail "unknown mode '${MODE}': use extract or validate"
+if [[ "${MODE:-extract}" == validate ]]; then validate; fi
 
 # "<input> <selector>" for each selector, plain tools first.
 mapfile -t listed < <(
@@ -229,14 +241,9 @@ for entry in "${listed[@]}"; do
   tool="${selector%%@*}"
   want["${selector}"]=""
   [[ "${selector}" == *@* ]] && want["${selector}"]="${selector#*@}"
-  [[ -f "${root}/tools/${tool}/tool.json" ]] || fail "unknown tool '${tool}'; tools: $(cd "${root}/tools" && echo *)"
+  error="$(selector_error "${input}" "${tool}")"
+  [[ -z "${error}" ]] || fail "${error}"
   IFS=$'\t' read -r folder["${selector}"] arch_folder["${selector}"] add_path["${selector}"] < <(layout "${tool}")
-  # The tool definition decides the input (ADR 0006): with addToPath, a plain tool; without, a tool-cache tool.
-  if [[ -n "${add_path[${selector}]}" && "${input}" != tools ]]; then
-    fail "${tool} is a plain tool: list it under tools, not ${input}"
-  elif [[ -z "${add_path[${selector}]}" && "${input}" != tool-cache ]]; then
-    fail "${tool} is a tool-cache tool: list it under tool-cache, not ${input}, and keep its setup-* step"
-  fi
   present=()
   for complete in "${tool_cache}/${folder[${selector}]}"/*/"${arch_folder[${selector}]}.complete"; do
     [[ -f "${complete}" ]] && present+=("$(basename "$(dirname "${complete}")")")
