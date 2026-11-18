@@ -54,3 +54,27 @@ test('a PR changing the shared build plans every tool; a PR changing neither pla
   assert.deepEqual(result.builds, []);
   assert.deepEqual(lookedUp, []);
 });
+
+test('a PR changing the build files of published versions without a revision bump warns; a bump plans them again', async () => {
+  const lines = { 3.9: { versions: ['3.9.15', '3.9.16'], revisions: { '3.9.16': 2 } } };
+  const tagExists = tagsIn('maven-3.9.15-r1', 'maven-3.9.16-r2');
+  const run = (tool, changedFiles, baseTools = { maven: maven(lines) }) => check({
+    tools: [tool], baseTools, changedFiles, lookup: upstreamOf({ maven: ['3.9.15', '3.9.16'] }), tagExists,
+  });
+  const warning = (files) => `maven: ${files} changed, but these published versions keep their tool image unless their revision is bumped: 3.9.15 (maven-3.9.15-r1), 3.9.16 (maven-3.9.16-r2)`;
+
+  assert.deepEqual((await run(maven(lines), ['tools/maven/install.sh', 'tools/maven/test.sh'])).warnings, [warning('tools/maven/install.sh')]);
+  assert.deepEqual((await run(maven(lines), ['build/tool-dir'])).warnings, [warning('build/tool-dir')]);
+  const relocated = parseToolDefinition('maven', { source: { datasource: 'maven' }, publish: { lines }, install: { addToPath: 'bin', cacheFolder: 'Maven' } });
+  assert.deepEqual((await run(relocated, ['tools/maven/tool.json'])).warnings, [warning('tools/maven/tool.json (install)')]);
+  assert.deepEqual((await run(maven(lines), ['tools/maven/tool.json'], {})).warnings, [warning('tools/maven/tool.json (install)')]);
+
+  // Test files and the publish block do not change tool images.
+  for (const file of ['tools/maven/test.sh', 'build/test.Dockerfile', 'tools/maven/tool.json']) {
+    assert.deepEqual((await run(maven(lines), [file])).warnings, [], file);
+  }
+
+  const bumped = await run(maven({ 3.9: { versions: ['3.9.15', '3.9.16'], revisions: { '3.9.15': 2, '3.9.16': 3 } } }), ['tools/maven/install.sh']);
+  assert.deepEqual(bumped.warnings, []);
+  assert.deepEqual(builds(bumped), ['maven 3.9.15 maven-3.9.15-r2 (planned: revision 2)', 'maven 3.9.16 maven-3.9.16-r3 (planned: revision 3)']);
+});
