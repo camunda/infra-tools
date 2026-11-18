@@ -14,12 +14,14 @@ set -euo pipefail
 curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 ${2:+-o "$2"} "$1"
 SCRIPT
 
+COPY --chmod=755 tool-dir /usr/local/bin/
+
 COPY --chmod=755 <<'SCRIPT' /usr/local/bin/install-tool
 #!/usr/bin/env bash
 # Runs <tool dir>/install.sh with VERSION, TARGETARCH, ARCH (tool cache arch folder) and DEST set, then marks DEST complete.
 set -euo pipefail
-ARCH="$(tr ' ' '\n' <<<"${ARCH_FOLDERS:?}" | sed -n "s/^${TARGETARCH:?}=//p")"
-DEST="/opt/hostedtoolcache/${CACHE_FOLDER:?}/${FOLDER_VERSION:?}/${ARCH:?no arch folder for ${TARGETARCH}}"
+DEST="$(tool-dir)"
+ARCH="$(basename "${DEST}")"
 mkdir -p "${DEST}"
 export VERSION TARGETARCH ARCH DEST
 "$1/install.sh"

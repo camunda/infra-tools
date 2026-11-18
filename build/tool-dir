@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Prints the tool cache folder of the tool version being built, /opt/hostedtoolcache/<CACHE_FOLDER>/<FOLDER_VERSION>/<arch>,
+# where <arch> is the tool cache arch folder of TARGETARCH in ARCH_FOLDERS (e.g. "amd64=x64 arm64=aarch64").
+set -euo pipefail
+arch="$(tr ' ' '\n' <<<"${ARCH_FOLDERS:?}" | sed -n "s/^${TARGETARCH:?}=//p")"
+echo "/opt/hostedtoolcache/${CACHE_FOLDER:?}/${FOLDER_VERSION:?}/${arch:?no arch folder for ${TARGETARCH}}"
