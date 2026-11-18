@@ -1,8 +1,10 @@
 // Index (spec §5.5, D3): every tool version of a release per platform, with its layer and tool cache layout.
-import { isRetired, PLATFORMS } from './tool-definition.mjs';
+import { archOf, isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions } from './versions.mjs';
 
-const keyOf = (e) => `${e.platform}|${e.tool}|${e.version}`;
+// One tool version, and one tool version on one platform.
+const versionKey = (e) => `${e.tool}|${e.version}`;
+const keyOf = (e) => `${e.platform}|${versionKey(e)}`;
 
 // Index = previous index + catalog entries − retired versions. layers maps each catalog tag to its layer per platform
 // ({ 'linux/amd64': { digest, size, mediaType } }). Throws when a catalog version lost its tag or a layer, or when a layer
@@ -14,7 +16,7 @@ export function buildIndex({ tools, catalogs, previous, layers }) {
   for (const tool of tools) {
     for (const entry of catalogs[tool.name] ?? []) {
       if (entry.retired || isRetired(tool, entry.version)) {
-        retired.add(`${tool.name}|${entry.version}`);
+        retired.add(versionKey({ tool: tool.name, version: entry.version }));
         continue;
       }
       const name = `${tool.name} ${entry.version}`;
@@ -38,7 +40,7 @@ export function buildIndex({ tools, catalogs, previous, layers }) {
           revision: entry.revision,
           tag: entry.tag,
           cacheFolder: entry.cacheFolder,
-          archFolder: entry.archFolders[platform.split('/')[1]],
+          archFolder: entry.archFolders[archOf(platform)],
           addToPath: entry.addToPath,
           digest: layer.digest,
           size: layer.size,
@@ -55,7 +57,7 @@ export function buildIndex({ tools, catalogs, previous, layers }) {
   }
   if (errors.length) throw new Error(errors.join('\n'));
   return [...merged.values()]
-    .filter((e) => !retired.has(`${e.tool}|${e.version}`))
+    .filter((e) => !retired.has(versionKey(e)))
     .sort((a, b) => a.tool.localeCompare(b.tool) || compareVersions(a.version, b.version) || a.platform.localeCompare(b.platform));
 }
 
@@ -64,7 +66,7 @@ function diffIndex(before, after) {
   const byVersion = (entries) => {
     const versions = new Map();
     for (const e of entries) {
-      const key = `${e.tool}|${e.version}`;
+      const key = versionKey(e);
       const item = versions.get(key) ?? { tool: e.tool, version: e.version, line: e.line, revision: e.revision, tag: e.tag, platforms: [], digests: {} };
       item.platforms.push(e.platform);
       item.digests[e.platform] = e.digest;
@@ -87,7 +89,7 @@ function diffIndex(before, after) {
 export function releaseNotes({ version, previous, repository, before, after }) {
   const changes = diffIndex(before, after);
   const link = (i) => `[${i.tag}](https://github.com/${repository}/releases/tag/${i.tag})`;
-  const arches = (i) => i.platforms.map((p) => p.split('/')[1]).sort().join(', ');
+  const arches = (i) => i.platforms.map(archOf).sort().join(', ');
   const out = [`Index: \`${version}-tools\`${previous ? `, previous: \`${previous}-tools\`` : ''}`, ''];
   const table = (title, header, rows) => {
     if (!rows.length) return;

@@ -44,8 +44,11 @@ export function parseToolDefinition(name, json) {
 
 export const PLATFORMS = ['linux/amd64', 'linux/arm64'];
 
+// Architecture of a platform: amd64 for linux/amd64.
+export const archOf = (platform) => platform.split('/')[1];
+
 // Tool cache arch folder of a platform, as the tool's setup-* action expects it (e.g. aarch64 for Java).
-export const archFolder = (tool, platform) => tool.install.archFolders[platform.split('/')[1]];
+export const archFolder = (tool, platform) => tool.install.archFolders[archOf(platform)];
 
 export const ANY = '*';
 
