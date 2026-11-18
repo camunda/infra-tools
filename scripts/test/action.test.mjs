@@ -68,12 +68,13 @@ beforeEach(async () => {
   runner = await mkdtemp(join(work, 'runner-'));
   await mkdir(join(runner, 'tool-cache'));
   await mkdir(join(runner, 'temp'));
+  await mkdir(join(runner, 'workspace'));
   registry.requests = [];
 });
 
 // Runs the action like the composite step of action.yml does, with the runner's environment.
 function action({ tools = '', env = {}, bash = 'bash' } = {}) {
-  const files = { output: join(runner, 'output'), path: join(runner, 'path') };
+  const files = { output: join(runner, 'output'), path: join(runner, 'path'), summary: join(runner, 'summary') };
   const child = spawn(bash, [SETUP], {
     env: {
       PATH: process.env.PATH,
@@ -84,6 +85,8 @@ function action({ tools = '', env = {}, bash = 'bash' } = {}) {
       RUNNER_TEMP: join(runner, 'temp'),
       GITHUB_OUTPUT: files.output,
       GITHUB_PATH: files.path,
+      GITHUB_STEP_SUMMARY: files.summary,
+      GITHUB_WORKSPACE: join(runner, 'workspace'),
       TOOLS: tools,
       TOKEN,
       INDEX: `${registry.host}/${REPOSITORY}:test-tools`,
@@ -98,7 +101,7 @@ function action({ tools = '', env = {}, bash = 'bash' } = {}) {
     child.on('close', async (status) => {
       const read = async (file) => (existsSync(file) ? readFile(file, 'utf8') : '');
       const outputs = Object.fromEntries((await read(files.output)).split('\n').filter(Boolean).map((l) => l.split(/=(.*)/s).slice(0, 2)));
-      resolve({ status, log, outputs, path: (await read(files.path)).split('\n').filter(Boolean) });
+      resolve({ status, log, outputs, path: (await read(files.path)).split('\n').filter(Boolean), summary: await read(files.summary) });
     });
   });
 }
@@ -227,4 +230,22 @@ test('a missing tool cache folder is created', async () => {
   const result = await action({ tools: 'maven@3.9' });
   assert.equal(result.status, 0, result.log);
   assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
+});
+
+test('summary: true adds a table of the selected tools to the job summary', async () => {
+  await mkdir(toolCache('maven/3.9.16/x64/bin'), { recursive: true });
+  await writeFile(toolCache('maven/3.9.16/x64.complete'), '');
+  const result = await action({ tools: 'maven@3.9\nmaven@3.10', env: { SUMMARY: 'true' } });
+  assert.equal(result.status, 0, result.log);
+  const rows = result.summary.split('\n').filter((l) => l.startsWith('|'));
+  assert.deepEqual(rows.slice(0, 2), ['| Selector | Version | Result | Tool cache path |', '| --- | --- | --- | --- |']);
+  assert.equal(rows[2], `| maven@3.9 | 3.9.16 | cached | ${toolCache('maven/3.9.16/x64')} |`);
+  assert.match(rows[3], new RegExp(`^\\| maven@3\\.10 \\| 3\\.10\\.1 \\| installed \\d+\\.\\d MB .*from ${registry.host} \\| ${toolCache('maven/3.10.1/x64')} \\|$`));
+  assert.equal(rows.length, 4);
+});
+
+test('the job summary is left alone by default', async () => {
+  const result = await action({ tools: 'maven@3.9' });
+  assert.equal(result.status, 0, result.log);
+  assert.equal(result.summary, '');
 });
