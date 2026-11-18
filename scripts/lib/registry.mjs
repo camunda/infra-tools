@@ -14,11 +14,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export class Registry {
   // repository: <registry>/<name>, e.g. ghcr.io/camunda/infra-tools.
-  constructor(repository, { token = process.env.GITHUB_TOKEN } = {}) {
+  // scheme: http for tests only.
+  constructor(repository, { token = process.env.GITHUB_TOKEN, scheme = 'https' } = {}) {
     const slash = repository.indexOf('/');
     this.host = repository.slice(0, slash);
     this.name = repository.slice(slash + 1);
-    this.base = `https://${this.host}/v2/${this.name}`;
+    this.base = `${scheme}://${this.host}/v2/${this.name}`;
     this.token = token;
     this.bearer = {};
   }
@@ -26,7 +27,7 @@ export class Registry {
   // Retries network errors and 5xx; any status outside `ok` throws, so an outage never reads as "missing".
   async request(path, { method = 'GET', headers = {}, body, push = false, ok = [200] } = {}) {
     const scope = push ? 'pull,push' : 'pull';
-    const url = path.startsWith('https://') ? path : `${this.base}${path}`;
+    const url = /^https?:\/\//.test(path) ? path : `${this.base}${path}`;
     for (let attempt = 1; ; attempt++) {
       const auth = this.bearer[scope] ? { Authorization: `Bearer ${this.bearer[scope]}` } : {};
       let res;
