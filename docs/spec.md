@@ -90,7 +90,7 @@ infra-tools/
 │   ├── builder.Dockerfile        # build-platform image where install.sh runs (download, install-tool)
 │   ├── tool.Dockerfile           # default tool build → FROM scratch tool image
 │   └── test.Dockerfile           # runs test.sh on the target platform
-├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index (+ lib/, test/)
+├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index, pull-request (+ lib/, test/)
 │   ├── package.json              # renovate (getPkgReleases)
 │   └── action/setup.sh           # implementation of the action
 ├── published/                    # bot-written record of published versions
@@ -181,9 +181,13 @@ Safeguards: never overwrite a tag; fail when a version of the catalog lost its t
 
 ### 5.4 Pull requests
 
-- Plan and build in dry run: planned versions, plus the latest published version per major of every tool whose files changed.
-- Warn when a published version's build files changed without a revision bump.
-- Comment the release notes the next release would produce.
+Jobs of `ci.yml` on pull requests, read only: nothing is pushed or published.
+
+- Plan and build in dry run: planned versions, plus the latest published version per major of every tool whose files changed (`tools/<tool>/`; the shared build, `build/` and `scripts/build.mjs`, changes every tool), built and tested for every platform without `--push`.
+- Warn when a published version's build files changed without a revision bump: its tool image files, not its tests (`test.sh`, `build/test.Dockerfile`), and `tool.json` only when its `install` block changed.
+- Comment the release notes the next release would produce: the latest release's index + the catalog + the planned versions − retired versions, compared with the latest release's index; fork PRs get it in the job summary only.
+
+Script: `pull-request.mjs` (plan, warnings and comment; the build jobs run `build.mjs`).
 
 ### 5.5 Releases
 
