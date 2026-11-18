@@ -259,6 +259,95 @@ jobs:
         OUTCOME: ${{ steps.invalid.outcome }}
       run: '[[ "${OUTCOME}" == failure ]]'
 
+  action-tool-cache:
+    name: Test action tool cache (${{ matrix.runner }})
+    permissions:
+      contents: read
+      packages: read # pull the index and the tool images
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, ubuntu-26.04, ubuntu-26.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    # GitHub-hosted runners come with Java and Node.js in the tool cache: remove them so the action installs its own.
+    - name: Empty the runner's Java and Node.js tool cache
+      run: rm -rf "${RUNNER_TOOL_CACHE}/Java_Temurin-Hotspot_jdk" "${RUNNER_TOOL_CACHE}/node"
+
+    - name: Install java and node into the tool cache
+      id: install
+      uses: ./
+      with:
+        tool-cache: |
+          java@21
+          node@26
+        index: ${{ env.INDEX }}
+
+    # A marker in each installed folder shows the setup-* actions below use it: a download would replace the folder.
+    # A lower build of the same Java version next to it checks which build setup-java picks when several are present.
+    - name: Check java and node are in the tool cache, and mark them
+      id: installed
+      env:
+        VERSIONS: ${{ steps.install.outputs.versions }}
+      run: |
+        [[ "$(jq -c 'keys' <<<"${VERSIONS}")" == '["java","node"]' ]]
+        java="$(jq -er .java <<<"${VERSIONS}")"
+        node="$(jq -er .node <<<"${VERSIONS}")"
+        case "${RUNNER_ARCH}" in X64) java_arch=x64 node_arch=x64 ;; ARM64) java_arch=aarch64 node_arch=arm64 ;; esac
+        java_home="${RUNNER_TOOL_CACHE}/Java_Temurin-Hotspot_jdk/${java/+/-}/${java_arch}"
+        node_home="${RUNNER_TOOL_CACHE}/node/${node}/${node_arch}"
+        test -f "${java_home}.complete"
+        test -f "${node_home}.complete"
+        touch "${java_home}/infra-tools-marker" "${node_home}/infra-tools-marker"
+        lower="${RUNNER_TOOL_CACHE}/Java_Temurin-Hotspot_jdk/${java%%+*}-0/${java_arch}"
+        mkdir -p "$(dirname "${lower}")"
+        ln -s "${java_home}" "${lower}"
+        touch "${lower}.complete"
+        echo "java-home=${java_home}" >>"${GITHUB_OUTPUT}"
+        echo "node-home=${node_home}" >>"${GITHUB_OUTPUT}"
+
+    - name: Set up the resolved Java build
+      uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      with:
+        distribution: temurin
+        java-version: ${{ fromJSON(steps.install.outputs.versions).java }}
+
+    - name: Check setup-java uses the installed build
+      env:
+        JAVA_HOME_WANTED: ${{ steps.installed.outputs.java-home }}
+      run: |
+        [[ "${JAVA_HOME}" == "${JAVA_HOME_WANTED}" ]]
+        test -f "${JAVA_HOME}/infra-tools-marker"
+
+    - name: Set up Java by its major, with two builds present
+      uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
+      with:
+        distribution: temurin
+        java-version: '21'
+
+    - name: Check setup-java picks the highest build
+      env:
+        JAVA_HOME_WANTED: ${{ steps.installed.outputs.java-home }}
+      run: '[[ "${JAVA_HOME}" == "${JAVA_HOME_WANTED}" ]]'
+
+    - name: Set up the resolved Node.js version
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ fromJSON(steps.install.outputs.versions).node }}
+
+    - name: Check setup-node uses the installed version
+      env:
+        NODE_HOME: ${{ steps.installed.outputs.node-home }}
+      run: |
+        [[ "$(command -v node)" == "${NODE_HOME}/bin/node" ]]
+        test -f "${NODE_HOME}/infra-tools-marker"
+
   action-macos:
     name: Test action (macos-latest)
     permissions:
@@ -293,6 +382,7 @@ jobs:
     - pr-dry-run
     - action-linux
     - action-validate
+    - action-tool-cache
     - action-macos
     runs-on: ubuntu-latest
     timeout-minutes: 5

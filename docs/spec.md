@@ -345,7 +345,7 @@ Workflows follow the infra team's reference repository, [`camunda/infra-services
 | Q9 | Move the toolset and the action to a dedicated repository? | No | resolved (D26) |
 | Q10 | Version the action and the toolset together or independently? | No | resolved (D27) |
 | Q11 | The reconciler commits records to `main`: GitHub App ruleset bypass, or an auto-merged record PR? | Releases | resolved (D49: direct push by the App, ruleset bypass) |
-| Q12 | With several builds of one version in the tool cache, does `setup-java` pick the highest? Otherwise pass the action's resolved version. | No | resolved (handled at Java's tool onboarding, D51; usage passes the resolved version, D53) |
+| Q12 | With several builds of one version in the tool cache, does `setup-java` pick the highest? Otherwise pass the action's resolved version. | No | resolved: yes, `setup-java` orders tool cache builds with `semver.compareBuild` (numeric build parts as numbers, as the action does) and matches an exact build only to itself; the CI action tests check both on runners (D51); usage passes the resolved version (D53) |
 | Q13 | Repository creation and ownership of `camunda/infra-tools` (org admin, CODEOWNERS, Vault/App credentials). | Migration | resolved (repository created, `infrastructure` admin, CODEOWNERS); App credentials in Q15 |
 | Q14 | Switch `camunda/infra-tools` and its package to public before `camunda/camunda` fork PRs rely on it. | Fork PRs | resolved (D48: the package stays internal; fork PR access tested, R18) |
 | Q15 | Workflows (`reconcile.yml`, `pr.yml`, `release.yml`, `release-merge.yml`) and the GitHub App credentials for record commits, fix PRs and releases. | First publish | resolved (D49: Infra - Misc App; the workflows are phase 1 work) |
