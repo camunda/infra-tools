@@ -81,10 +81,10 @@ jobs:
         REPOSITORY: ${{ github.repository }}
       run: |
         node scripts/pull-request.mjs --image ghcr.io/camunda/infra-tools --repository "${REPOSITORY}" --out "${OUT}"
-        echo "builds=$(jq -c . "${OUT}/builds.json")" >> "$GITHUB_OUTPUT"
+        echo "builds=$(jq -c . "${OUT}/builds.json")" >>"${GITHUB_OUTPUT}"
         if [[ -f "${OUT}/comment.md" ]]; then
-          cat "${OUT}/comment.md" >> "$GITHUB_STEP_SUMMARY"
-          echo "comment=true" >> "$GITHUB_OUTPUT"
+          cat "${OUT}/comment.md" >>"${GITHUB_STEP_SUMMARY}"
+          echo "comment=true" >>"${GITHUB_OUTPUT}"
         fi
 
     - name: Comment the release notes preview
