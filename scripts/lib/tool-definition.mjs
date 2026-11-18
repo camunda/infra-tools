@@ -45,7 +45,7 @@ export function parseToolDefinition(name, json) {
     if (addToPath !== null) fail('setup is for tool-cache tools; a plain tool (install.addToPath) is ready to use');
     if (typeof tool.setup.action !== 'string' || typeof tool.setup.versionInput !== 'string') fail('setup needs action and versionInput');
     const inputs = tool.setup.with;
-    if (typeof inputs !== 'object' || Array.isArray(inputs) || Object.values(inputs ?? {}).some((v) => typeof v !== 'string')) fail('setup.with maps inputs to strings');
+    if (typeof inputs !== 'object' || inputs === null || Array.isArray(inputs) || Object.values(inputs).some((v) => typeof v !== 'string')) fail('setup.with maps inputs to strings');
   }
   validateLines(tool, fail);
   return tool;
