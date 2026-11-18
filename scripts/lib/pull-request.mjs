@@ -42,16 +42,16 @@ export async function checkPullRequest({ tools, baseTools, changedFiles, plan: p
     const plan = await planTool(tool, planOptions);
     planned[tool.name] = plan.versions.filter((v) => v.decision === 'publish');
     const plannedVersions = new Set(planned[tool.name].map((v) => v.version));
-    // A version stays available to consumers until it is retired, even out of every line or delisted upstream: published
+    // A version stays available to consumers until it is retired, even out of every line or delisted upstream: available
     // versions come from the catalog, not the plan. A planned revision replaces its published tool image.
-    const published = (catalogs[tool.name] ?? []).filter((e) => !e.retired && !isRetired(tool, e.version) && !plannedVersions.has(e.version));
+    const available = (catalogs[tool.name] ?? []).filter((e) => !e.retired && !isRetired(tool, e.version) && !plannedVersions.has(e.version));
     const changed = imageFiles(tool, toolFiles(tool, changedFiles), baseTools[tool.name]);
-    if (changed.length && published.length) {
-      const versions = published.map((e) => `${e.version} (${e.tag})`);
+    if (changed.length && available.length) {
+      const versions = available.map((e) => `${e.version} (${e.tag})`);
       warnings.push(`${tool.name}: ${changed.join(', ')} changed, but these published versions keep their tool image unless their revision is bumped: ${versions.join(', ')}`);
     }
     const latest = new Map();
-    for (const e of published) {
+    for (const e of available) {
       const m = majorOf(e.version);
       if (!latest.has(m) || compareVersions(e.version, latest.get(m).version) > 0) latest.set(m, e);
     }

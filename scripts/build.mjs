@@ -14,8 +14,8 @@ import { readCatalog, readToolDefinition, ROOT } from './lib/repository.mjs';
 const { values, positionals } = parseArgs({ options: { push: { type: 'string' } }, allowPositionals: true });
 const [name, version] = positionals;
 if (!name || !version) throw new Error('usage: node build.mjs <tool> <version> [--push <registry>/<repository>]');
-const published = values.push ? undefined : (await readCatalog(name)).find((e) => e.version === version);
-const target = buildTarget(await readToolDefinition(name), version, { published });
+const catalogEntry = values.push ? undefined : (await readCatalog(name)).find((e) => e.version === version);
+const target = buildTarget(await readToolDefinition(name), version, { catalogEntry });
 const layout = join('build/out', target.tag);
 
 const bake = (...args) => {

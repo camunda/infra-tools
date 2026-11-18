@@ -37,7 +37,7 @@ test('a run records every version whose tool image exists and that the catalog l
     maven: { tool: 'maven', upstream: null, versions: [{ version: '3.9.16', decision: 'skip', reason: 'published' }] },
   };
   const run = recordRun({ tools: [maven, node], catalogs, plans, now });
-  assert.deepEqual(run.published, [
+  assert.deepEqual(run.toolReleases, [
     { tool: 'node', version: '26.11.1', line: '26', revision: 2, tag: 'node-26.11.1-r2', upstream: 'https://github.com/nodejs/node' },
     { tool: 'node', version: '26.11.2', line: '26', revision: 1, tag: 'node-26.11.2-r1', upstream: 'https://github.com/nodejs/node' },
   ]);
@@ -53,7 +53,7 @@ test('a run records every version whose tool image exists and that the catalog l
   ].join('\n'));
 
   const again = recordRun({ tools: [maven, node], catalogs: run.catalogs, plans, now });
-  assert.deepEqual([again.published, again.changes], [[], []], 'a second run records nothing');
+  assert.deepEqual([again.toolReleases, again.changes], [[], []], 'a second run records nothing');
   assert.equal(commitMessage(again.changes), '');
 });
 

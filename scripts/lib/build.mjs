@@ -4,18 +4,18 @@ import { compareVersions, folderVersion, tagFor } from './versions.mjs';
 
 // Throws when the tool definition does not publish the version: in no line, ignored, retired, or neither pinned (versions,
 // revisions) nor at or above its line's from. Upstream stability and minAge are the plan's to check.
-// published: the version's catalog entry, for dry runs only (spec §5.4): a published version the tool definition no longer
+// catalogEntry: the version's catalog entry, for dry runs only (spec §5.4): a published version the tool definition no longer
 // publishes (fixed pin replaced, line stopped or removed, from raised) is still built, with its catalog line and revision,
 // unless it is retired.
-export function buildTarget(tool, version, { published } = {}) {
+export function buildTarget(tool, version, { catalogEntry } = {}) {
   const where = `tools/${tool.name}/tool.json`;
   const line = lineFor(tool, version);
   let key = line?.key;
   let revision = revisionOf(tool, version);
   const unpublished = unpublishedReason(tool, version, line);
   if (unpublished) {
-    if (!published || published.retired || isRetired(tool, version)) throw new Error(`${where}: ${tool.name} ${version} ${unpublished}`);
-    ({ line: key, revision } = published);
+    if (!catalogEntry || catalogEntry.retired || isRetired(tool, version)) throw new Error(`${where}: ${tool.name} ${version} ${unpublished}`);
+    ({ line: key, revision } = catalogEntry);
   }
   const { cacheFolder, archFolders } = tool.install;
   return {
