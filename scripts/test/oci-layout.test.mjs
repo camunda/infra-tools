@@ -71,6 +71,7 @@ after(() => fake.stop());
 test('the tool image is pushed byte for byte under its tag', async () => {
   await pushOciLayout(registry, work, 'maven-3.9.16-r2');
   assert.equal(sha256(fake.manifests.get('maven-3.9.16-r2').bytes), layout.index);
+  assert.equal(await registry.digest('maven-3.9.16-r2'), layout.index);
   assert.deepEqual(await registry.toolImageLayers('maven-3.9.16-r2'), {
     'linux/amd64': { digest: layout.platforms.amd64.layer, size: 24, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' },
     'linux/arm64': { digest: layout.platforms.arm64.layer, size: 24, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' },
