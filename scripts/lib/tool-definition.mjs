@@ -50,7 +50,7 @@ export const archOf = (platform) => platform.split('/')[1];
 // Tool cache arch folder of a platform, as the tool's setup-* action expects it (e.g. aarch64 for Java).
 export const archFolder = (tool, platform) => tool.install.archFolders[archOf(platform)];
 
-export const ANY = '*';
+const ANY = '*';
 
 const LINE_OPTIONS = ['from', 'versions', 'ignoredVersions', 'revisions', 'retired', 'minAge', 'reason'];
 
