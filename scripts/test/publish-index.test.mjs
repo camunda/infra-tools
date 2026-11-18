@@ -88,6 +88,6 @@ test('a tool version without its tool image fails and pushes nothing', async () 
 
 test('a version its tool definition does not publish is refused', async () => {
   await assert.rejects(publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.15' }]), {
-    message: 'maven 3.9.15 is not published by line 3.9 of tools/maven/tool.json',
+    message: 'tools/maven/tool.json: maven 3.9.15 is not published by line 3.9',
   });
 });

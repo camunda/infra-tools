@@ -38,14 +38,14 @@ test('a build target writes build metadata as - and carries the revision of its 
 });
 
 test('only versions the tool definition publishes have a build target', () => {
-  assert.throws(() => buildTarget(maven, '3.8.9'), { message: 'maven 3.8.9 is in no version line of tools/maven/tool.json' });
-  assert.throws(() => buildTarget(maven, '3.9.15'), { message: 'maven 3.9.15 is ignored in line 3.9 of tools/maven/tool.json' });
-  assert.throws(() => buildTarget(maven, '3.10.1'), { message: 'maven 3.10.1 is retired in line * of tools/maven/tool.json' });
+  assert.throws(() => buildTarget(maven, '3.8.9'), { message: 'tools/maven/tool.json: maven 3.8.9 is in no version line' });
+  assert.throws(() => buildTarget(maven, '3.9.15'), { message: 'tools/maven/tool.json: maven 3.9.15 is ignored in line 3.9' });
+  assert.throws(() => buildTarget(maven, '3.10.1'), { message: 'tools/maven/tool.json: maven 3.10.1 is retired in line *' });
 });
 
 test('a line publishes its pinned versions and its versions from its from on, nothing else', () => {
-  assert.throws(() => buildTarget(maven, '3.9.14'), { message: 'maven 3.9.14 is not published by line 3.9 of tools/maven/tool.json' });
-  assert.throws(() => buildTarget(maven, '3.9.17'), { message: 'maven 3.9.17 is not published by line 3.9 of tools/maven/tool.json' });
+  assert.throws(() => buildTarget(maven, '3.9.14'), { message: 'tools/maven/tool.json: maven 3.9.14 is not published by line 3.9' });
+  assert.throws(() => buildTarget(maven, '3.9.17'), { message: 'tools/maven/tool.json: maven 3.9.17 is not published by line 3.9' });
   assert.equal(buildTarget(maven, '3.11.0').tag, 'maven-3.11.0-r1');
   assert.equal(buildTarget(java, '21.0.12+8').line, '21');
 });
@@ -56,6 +56,6 @@ test('a dry run also builds a published version the tool definition no longer pu
   assert.deepEqual([target.line, target.revision, target.tag], ['3.8', 2, 'maven-3.8.9-r2']);
   assert.equal(buildTarget(maven, '3.9.16', { published: { version: '3.9.16', line: '3.9', revision: 1, tag: 'maven-3.9.16-r1' } }).tag, 'maven-3.9.16-r1');
   // Retired versions and retired catalog entries are never built.
-  assert.throws(() => buildTarget(maven, '3.10.1', { published: { version: '3.10.1', line: '*', revision: 1, tag: 'maven-3.10.1-r1' } }), { message: 'maven 3.10.1 is retired in line * of tools/maven/tool.json' });
-  assert.throws(() => buildTarget(maven, '3.8.9', { published: { ...published, retired: true } }), { message: 'maven 3.8.9 is in no version line of tools/maven/tool.json' });
+  assert.throws(() => buildTarget(maven, '3.10.1', { published: { version: '3.10.1', line: '*', revision: 1, tag: 'maven-3.10.1-r1' } }), { message: 'tools/maven/tool.json: maven 3.10.1 is retired in line *' });
+  assert.throws(() => buildTarget(maven, '3.8.9', { published: { ...published, retired: true } }), { message: 'tools/maven/tool.json: maven 3.8.9 is in no version line' });
 });
