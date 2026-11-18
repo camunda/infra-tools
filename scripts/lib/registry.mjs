@@ -10,6 +10,9 @@ const ACCEPT = [
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// tagExists(tag) of planTool and checkCatalogTags against the tags of registry (Registry.exists).
+export const tagExists = (registry) => (tag) => registry.exists(tag);
+
 export class Registry {
   // repository: <registry>/<name>, e.g. ghcr.io/camunda/infra-tools.
   // scheme: http for tests only.

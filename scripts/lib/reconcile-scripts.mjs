@@ -2,7 +2,8 @@
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { planTool } from './plan.mjs';
-import { readToolDefinition, readToolNames, ROOT } from './repository.mjs';
+import { tagExists } from './registry.mjs';
+import { readCatalog, readToolDefinition, readToolNames, ROOT } from './repository.mjs';
 
 // Options of a reconciler script: --image <registry>/<repository>, the script's own required options (e.g. { repository:
 // '<owner>/<name>' }, name to value in its usage) and --out <dir> (default build/out/reconcile). Throws its usage when one is
@@ -19,11 +20,16 @@ export function reconcilerOptions(script, required = {}) {
   return values;
 }
 
-// Every tool definition, and its plan by tool name against upstream and the published tags in registry (Registry).
+// Every tool definition, and its catalog entries and its plan by tool name against upstream and the published tags in registry
+// (Registry).
 export async function planEveryTool(registry) {
   const tools = await Promise.all((await readToolNames()).map(readToolDefinition));
-  const options = { tagExists: (tag) => registry.exists(tag), now: Date.now() };
+  const options = { tagExists: tagExists(registry), now: Date.now() };
+  const catalogs = {};
   const plans = {};
-  for (const tool of tools) plans[tool.name] = await planTool(tool, options);
-  return { tools, plans };
+  for (const tool of tools) {
+    catalogs[tool.name] = await readCatalog(tool.name);
+    plans[tool.name] = await planTool(tool, options);
+  }
+  return { tools, catalogs, plans };
 }
