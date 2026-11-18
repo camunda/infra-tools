@@ -1,4 +1,5 @@
-// Plan of one tool (spec §5.3, D41): every upstream version gets a decision, publish, wait or skip, with its reason.
+// Plan of one tool (spec §5.3, D41): every upstream version gets a decision, publish, wait or skip, with its reason, and the
+// upstream project link (its source repository, else its homepage, else null) for the tool releases.
 import { renovateLookup, versioningFor } from './renovate.mjs';
 import { archFolder, lineFor, parseDuration, PLATFORMS, revisionOf } from './tool-definition.mjs';
 import { compareVersions, sortVersions, tagFor } from './versions.mjs';
@@ -6,7 +7,7 @@ import { compareVersions, sortVersions, tagFor } from './versions.mjs';
 // lookup: Renovate's getPkgReleases or a stand-in.
 export async function planTool(tool, { lookup = renovateLookup, tagExists, now = Date.now() }) {
   const scheme = await versioningFor(tool.source);
-  const upstream = await upstreamVersions(tool, lookup);
+  const { upstream, link } = await upstreamVersions(tool, lookup);
   const pinned = Object.values(tool.publish.lines).flatMap((line) => [...(line.versions ?? []), ...Object.keys(line.revisions ?? {})]);
   const notFound = pinned.filter((version) => !upstream.has(version));
   if (notFound.length) throw new Error(`${tool.name}: not found upstream: ${sortVersions(notFound).join(', ')}`);
@@ -32,10 +33,10 @@ export async function planTool(tool, { lookup = renovateLookup, tagExists, now =
     if (await tagExists(tag)) versions.push({ version, decision: 'skip', reason: 'published' });
     else versions.push({ version, decision, reason, line: line.key, revision, tag });
   }
-  return { tool: tool.name, versions };
+  return { tool: tool.name, versions, upstream: link };
 }
 
-// Upstream versions by exact version string, with the platforms they exist for. `{arch}` in the package name makes one lookup per
+// Upstream versions by exact version string, with the platforms they exist for, and the upstream project link. `{arch}` in the package name makes one lookup per
 // platform (with the tool cache arch folder); otherwise one lookup covers every platform.
 async function upstreamVersions(tool, lookup) {
   const { packageName } = tool.source;
@@ -58,7 +59,8 @@ async function upstreamVersions(tool, lookup) {
       upstream.set(found.version, entry);
     }
   });
-  return upstream;
+  const link = results.map((r) => r.sourceUrl ?? r.homepage).find(Boolean) ?? null;
+  return { upstream, link };
 }
 
 // A version's line rule (D41), in order: no line, retired or ignored, pinned (no stability or minAge check), outside from,
