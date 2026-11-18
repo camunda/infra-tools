@@ -7,6 +7,8 @@ variable "FOLDER_VERSION" {}
 variable "CACHE_FOLDER" {}
 variable "ARCH_FOLDERS" {}
 variable "LAYOUT" {}
+# The commit the tool image is built from, annotated on its image index: its tool release is tagged there.
+variable "REVISION" {}
 
 variable "PLATFORMS" {
   default = "linux/amd64,linux/arm64"
@@ -34,11 +36,12 @@ target "builder" {
 }
 
 target "tool" {
-  inherits   = ["_args"]
-  context    = "tools/${TOOL}"
-  dockerfile = "../../build/tool.Dockerfile"
-  contexts   = { builder = "target:builder" }
-  output     = ["type=oci,dest=${LAYOUT},tar=false"]
+  inherits    = ["_args"]
+  context     = "tools/${TOOL}"
+  dockerfile  = "../../build/tool.Dockerfile"
+  contexts    = { builder = "target:builder" }
+  annotations = ["index:org.opencontainers.image.revision=${REVISION}"]
+  output      = ["type=oci,dest=${LAYOUT},tar=false"]
 }
 
 target "test" {

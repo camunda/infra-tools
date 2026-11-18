@@ -2,7 +2,7 @@
 // Builds the tool image of one tool version into build/out/<tag> (an OCI layout) and runs its test.sh against it on every
 // platform (build/docker-bake.hcl). With --push, pushes that tested layout as <tag>, never over an existing tag. Without it (dry
 // run), a published version the tool definition no longer publishes is built too, from its catalog entry (lib/build.mjs).
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -17,9 +17,11 @@ if (!name || !version) throw new Error('usage: node build.mjs <tool> <version> [
 const catalogEntry = values.push ? undefined : (await readCatalog(name)).find((e) => e.version === version);
 const target = buildTarget(await readToolDefinition(name), version, { catalogEntry });
 const layout = join('build/out', target.tag);
+// The build commit, annotated on the tool image (build/docker-bake.hcl).
+const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
 
 const bake = (...args) => {
-  const env = { ...process.env, ...target.args, LAYOUT: layout };
+  const env = { ...process.env, ...target.args, LAYOUT: layout, REVISION: revision };
   const { status } = spawnSync('docker', ['buildx', 'bake', '-f', 'build/docker-bake.hcl', '--progress=plain', ...args], { cwd: ROOT, env, stdio: 'inherit' });
   if (status !== 0) throw new Error(`docker buildx bake ${args.at(-1)} failed for ${target.tool} ${target.version}`);
 };
