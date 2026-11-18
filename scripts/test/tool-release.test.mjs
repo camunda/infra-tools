@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
-import { test } from 'node:test';
+import { after, before, test } from 'node:test';
+import { Registry } from '../lib/registry.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
-import { toolRelease } from '../lib/tool-release.mjs';
+import { imageToolRelease, toolRelease } from '../lib/tool-release.mjs';
+import { FakeRegistry, TOKEN } from './fake-registry.mjs';
 
 const java = parseToolDefinition('java', {
   source: { datasource: 'java-version' },
@@ -72,4 +74,22 @@ test('a plain tool is used through tools, ready to use; a tool-cache tool withou
 
   const cached = release(node, { version: '26.13.1', line: '26', tag: 'node-26.13.1-r1' }).body;
   assert.match(cached, /\n {4}tool-cache: node@26\.13\.1\n# Then the setup-\* action of node, with its version input set to \$\{\{ fromJSON\(steps\.tools\.outputs\.versions\)\.node \}\}\n```\n/);
+});
+
+const fake = new FakeRegistry();
+before(() => fake.start());
+after(() => fake.stop());
+
+test('a tool release is tagged on the build commit its tool image carries; a tool image without one gets no tool release', async () => {
+  const registry = new Registry(fake.repository, { token: TOKEN, scheme: 'http' });
+  const commit = 'fedcba9876543210fedcba9876543210fedcba98';
+  const recorded = { tool: 'maven', version: '3.9.16', line: '3.9', revision: 2, tag: 'maven-3.9.16-r2', upstream: null };
+  const layers = { 'linux/amd64': Buffer.from('amd64 layer'), 'linux/arm64': Buffer.from('arm64 layer') };
+  const { digest } = fake.addToolImage(recorded.tag, layers, { 'org.opencontainers.image.revision': commit });
+  const r = await imageToolRelease({ tool: maven, recorded, registry, repository: 'camunda/infra-tools' });
+  assert.equal(r.target_commitish, commit);
+  assert.equal(r.body.split('\n').at(-1), `Image \`${fake.repository}:maven-3.9.16-r2@${digest}\`, line \`3.9\`, revision 2, built from camunda/infra-tools@fedcba9.`);
+
+  fake.addToolImage('maven-3.9.15-r1', layers);
+  assert.equal(await imageToolRelease({ tool: maven, recorded: { ...recorded, version: '3.9.15', revision: 1, tag: 'maven-3.9.15-r1' }, registry, repository: 'camunda/infra-tools' }), null);
 });

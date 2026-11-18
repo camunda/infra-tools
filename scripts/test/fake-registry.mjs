@@ -55,8 +55,9 @@ export class FakeRegistry {
     return stored && JSON.parse(stored.bytes);
   }
 
-  // A tool image as Buildx pushes it: an image index with one single-layer manifest per platform ({ 'linux/amd64': bytes }).
-  addToolImage(tag, layers) {
+  // A tool image as Buildx pushes it: an image index with one single-layer manifest per platform ({ 'linux/amd64': bytes }), and
+  // the annotations of the index.
+  addToolImage(tag, layers, annotations) {
     const config = this.addBlob(Buffer.from('{}'));
     const manifests = Object.entries(layers).map(([platform, bytes]) => {
       const layer = { mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip', digest: this.addBlob(bytes), size: bytes.length };
@@ -64,7 +65,7 @@ export class FakeRegistry {
       const [os, architecture] = platform.split('/');
       return { mediaType: MEDIA_TYPES.manifest, ...this.addManifest(manifest), platform: { os, architecture } };
     });
-    this.addManifest({ schemaVersion: 2, mediaType: MEDIA_TYPES.index, manifests }, tag);
+    return this.addManifest({ schemaVersion: 2, mediaType: MEDIA_TYPES.index, manifests, ...(annotations && { annotations }) }, tag);
   }
 
   addIndex(tag, entries) {

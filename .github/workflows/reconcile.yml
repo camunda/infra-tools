@@ -162,8 +162,7 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
         REPOSITORY: ${{ github.repository }}
-        COMMIT: ${{ github.sha }}
-      run: node scripts/publish.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --commit "${COMMIT}" --out "${OUT}"
+      run: node scripts/publish.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --out "${OUT}"
 
     - name: Push the record commit to main
       env:

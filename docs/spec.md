@@ -152,7 +152,7 @@ Each version belongs to exactly one line: lines never overlap (`26` and `26.11` 
 
 Lines (D41), per upstream version: find its line (the explicit line it belongs to, else `"*"` from its `from` on, else none → skip); `"retired": "all"`, `ignoredVersions` or `retired` → skip; in `versions` or `revisions` → publish (no stability or `minAge` check); older than `from` or no `from` → skip; unstable → skip; newer than `minAge` → wait; otherwise publish. Validation rejects unknown options, line keys that are not a major, a minor or `"*"`, empty lines (none of `from`, `versions`, `revisions` or `retired`), line options naming versions outside their line, `versions` at or above `from`, `"*"` without `from` or with `versions` or `"retired": "all"`, other options next to `"retired": "all"`, nested lines and lines at or above `"*".from`. The catalog, index annotations and release notes record each version's line.
 
-- Build stages (`build/tool.Dockerfile`): `builder` image (build platform, never published) → `install` stage: `install-tool` runs `install.sh` with `VERSION`, `TARGETARCH`, `ARCH` (tool cache arch folder) and `DEST`, then marks `DEST` complete → `FROM scratch` tool image holding `/opt/hostedtoolcache/<cacheFolder>/<folder version>/<arch>` (D34).
+- Build stages (`build/tool.Dockerfile`): `builder` image (build platform, never published) → `install` stage: `install-tool` runs `install.sh` with `VERSION`, `TARGETARCH`, `ARCH` (tool cache arch folder) and `DEST`, then marks `DEST` complete → `FROM scratch` tool image holding `/opt/hostedtoolcache/<cacheFolder>/<folder version>/<arch>` (D34), its image index annotated with the build commit (`org.opencontainers.image.revision`).
 - Test stage (`build/test.Dockerfile`): each Ubuntu release our runners use (`UBUNTU_RELEASES`, D58) on the target platform with the packages runners have (`python3`, a Java runtime, …), layer copied in, `test.sh` run with `VERSION` and `TOOL_DIR`; never published.
 - Version differences: `if version ≥ X` in the default `install.sh` and `test.sh` (D22).
 - Versions with build metadata: `+` is written as `-` in folder names and tags (`java-21.0.12-101.0.LTS-r1`).
@@ -194,7 +194,7 @@ Script: `pull-request.mjs` (plan, warnings and comment; the build jobs run `buil
 
 Tool releases:
 
-- Created by the reconciler when it publishes a tool image; tag `<tool>-<version>-r<revision>` on the commit the layers were built from, never marked latest (GitHub shows the newest one as latest until the first `X.Y.Z` release exists).
+- Created by the reconciler when it publishes a tool image; tag `<tool>-<version>-r<revision>` on the commit the layers were built from (the tool image's build commit annotation, whichever run or workflow pushed it), never marked latest (GitHub shows the newest one as latest until the first `X.Y.Z` release exists). A tool image without that annotation (pushed before it was set) gets no tool release, with a workflow warning; the catalog still records it.
 - Content: upstream project link, usage snippet (action and selector), tool cache path, layer digest and size per platform, image digest, line, revision and build commit. `publish.mjs --update` rewrites existing releases and moves their tag.
 
 Releases (release-please, D25):
