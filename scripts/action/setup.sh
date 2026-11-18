@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The action (action.yml): installs the selected tools from the index into the tool cache, and puts plain tools on PATH.
-# Inputs come from the environment: TOOLS (selectors), TOKEN (registry token), INDEX (<registry>/<repository>:<tag>) and
-# SUMMARY (`true`: table of the selected tools in the job summary).
-# Requires bash 5, curl, jq, tar and sha256sum on Linux.
+# Inputs come from the environment: TOOLS (selectors), MODE (`extract` or `validate`), TOKEN (registry token), INDEX
+# (<registry>/<repository>:<tag>) and SUMMARY (`true`: table of the selected tools in the job summary).
+# Requires bash 5, curl, jq, tar and sha256sum on Linux; yq for MODE=validate.
 set -euo pipefail
 
 # Other runners run the action with the bash they have (3.2 on macOS): nothing before this check may need bash 5.
