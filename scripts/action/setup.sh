@@ -146,7 +146,9 @@ wrapper_hash() {
 }
 
 # Links Maven into the folder ./mvnw runs it from, $MAVEN_USER_HOME/wrapper/dists/apache-maven-<version>/<hash>, when the
-# repository's .mvn/wrapper asks for the same version (D32); ./mvnw then does not download it.
+# repository's .mvn/wrapper asks for the same version (D32); ./mvnw then does not download it. Only the script-only ./mvnw of
+# Maven Wrapper 3.3+ uses that folder, and MVNW_REPOURL is not honoured (./mvnw hashes the rewritten URL): ./mvnw then
+# downloads Maven.
 link_wrapper() {
   local home="$1" maven="$2" properties="${GITHUB_WORKSPACE:-}/.mvn/wrapper/maven-wrapper.properties" url name dists
   [[ -n "${GITHUB_WORKSPACE:-}" && -f "${properties}" ]] || return 0
