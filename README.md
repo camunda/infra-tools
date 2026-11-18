@@ -8,9 +8,23 @@ Work in progress: phase 1 is tracked in [#7](https://github.com/camunda/infra-to
 - [Glossary](GLOSSARY.md)
 - [Architecture decisions](docs/adr/)
 
-## Publish a tool version by hand
+## Publication
 
-Until the reconciler publishes tool versions, the [Publish tool](.github/workflows/publish-tool.yml) workflow builds, tests and pushes the tool image of one version that its tool definition publishes, then adds it to an index (`ghcr.io/camunda/infra-tools:tracer-tools` by default):
+The [Reconcile](.github/workflows/reconcile.yml) workflow publishes every upstream version within the version lines of `tools/*/tool.json`, every 6 hours, on push to `main` and on demand: it builds, tests and pushes each missing tool image to `ghcr.io/camunda/infra-tools`, creates its tool release, and records it in `published/<tool>.json` with one commit per run, pushed to `main` by the Infra - Misc App. Run it now:
+
+```sh
+gh workflow run reconcile.yml
+```
+
+See what the next run would publish (reads upstream and the registry, with a token that can read the package):
+
+```sh
+GITHUB_TOKEN="$(gh auth token)" node scripts/plan.mjs --image ghcr.io/camunda/infra-tools
+```
+
+### Publish a tool version by hand
+
+Until the first release, the action tests read a test index filled by hand. The [Publish tool](.github/workflows/publish-tool.yml) workflow builds, tests and pushes the tool image of one version that its tool definition publishes and that the reconciler has not published yet, then adds it to an index (`ghcr.io/camunda/infra-tools:tracer-tools` by default):
 
 ```sh
 gh workflow run publish-tool.yml -f tool=maven -f version=3.9.16
