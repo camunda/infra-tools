@@ -37,7 +37,7 @@ export function parseToolDefinition(name, json) {
   if (typeof archFolders?.amd64 !== 'string' || typeof archFolders?.arm64 !== 'string') fail('install.archFolders needs a folder for amd64 and arm64');
   if (addToPath !== null && typeof addToPath !== 'string') fail('install.addToPath is a folder name');
   if (typeof tool.publish.minAge !== 'string') fail('publish.minAge is a duration string (e.g. "1 day")');
-  check(fail, 'publish.minAge', () => parseDuration(tool.publish.minAge));
+  checkDuration(fail, 'publish.minAge', tool.publish.minAge);
   validateLines(tool, fail);
   return tool;
 }
@@ -89,7 +89,7 @@ function validateLines(tool, fail) {
     if (line.from !== undefined && typeof line.from !== 'string') lineFail('from is a version string');
     if (line.reason !== undefined && typeof line.reason !== 'string') lineFail('reason is a string');
     if (line.minAge !== undefined && typeof line.minAge !== 'string') lineFail('minAge is a duration string (e.g. "1 day")');
-    if (line.minAge !== undefined) check(lineFail, 'minAge', () => parseDuration(line.minAge));
+    if (line.minAge !== undefined) checkDuration(lineFail, 'minAge', line.minAge);
     if (line.retired === 'all') {
       if (key === ANY) lineFail('"retired": "all" is not allowed on "*"; give its versions a line first');
       const others = Object.keys(line).filter((o) => !['retired', 'reason'].includes(o));
@@ -132,9 +132,9 @@ function validateLines(tool, fail) {
   }
 }
 
-const check = (fail, option, fn) => {
+const checkDuration = (fail, option, value) => {
   try {
-    fn();
+    parseDuration(value);
   } catch (err) {
     fail(`${option}: ${err.message}`);
   }
