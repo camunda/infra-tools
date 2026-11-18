@@ -1,5 +1,5 @@
 // Usage: node publish.mjs --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]
-// Reconciler tool releases (spec §5.3, step 3; §5.5): creates the tool release of every tool version in <out>/tool-releases.json
+// Reconciler tool releases (spec §5.3, step 3; §5.5): creates the tool release of every tool version in <out>/unreleased.json
 // (record.mjs; default build/out/reconcile), tagged on the build commit its tool image carries (lib/tool-release.mjs). A tool
 // image without one fails the run before its record commit. A tool release that exists is left as it is. Uses gh and its token
 // (GH_TOKEN or GITHUB_TOKEN).
@@ -25,14 +25,14 @@ function existingRelease(tag) {
 }
 
 const registry = new Registry(values.image);
-const toolReleases = JSON.parse(await readFile(join(values.out, 'tool-releases.json'), 'utf8'));
-for (const p of toolReleases) {
-  const existing = existingRelease(p.tag);
+const unreleased = JSON.parse(await readFile(join(values.out, 'unreleased.json'), 'utf8'));
+for (const recorded of unreleased) {
+  const existing = existingRelease(recorded.tag);
   if (existing) {
-    console.log(`${p.tag}: tool release exists, ${existing.html_url}`);
+    console.log(`${recorded.tag}: tool release exists, ${existing.html_url}`);
     continue;
   }
-  const release = await imageToolRelease({ tool: await readToolDefinition(p.tool), recorded: p, registry, repository: values.repository });
+  const release = await imageToolRelease({ tool: await readToolDefinition(recorded.tool), recorded, registry, repository: values.repository });
   const created = JSON.parse(gh(JSON.stringify(release), '--method', 'POST', `repos/${values.repository}/releases`, '--input', '-'));
-  console.log(`${p.tag}: tool release created, ${created.html_url}`);
+  console.log(`${recorded.tag}: tool release created, ${created.html_url}`);
 }

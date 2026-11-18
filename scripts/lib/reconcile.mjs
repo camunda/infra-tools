@@ -15,17 +15,17 @@ export async function checkCatalogTags({ catalogs, tagExists }) {
 // plans: planTool's result per tool, once the run's builds are pushed. Every version whose tool image exists (reason
 // published) is recorded when the catalog lacks it at that revision, whether this run or an earlier one that failed before
 // its record commit pushed it; failed builds stay planned and are not recorded.
-// Returns the catalogs of every tool, the changes of the record commit, and toolReleases, the recorded tool versions that need
+// Returns the catalogs of every tool, the changes of the record commit, and unreleased, the recorded tool versions that need
 // a tool release ({ tool, version, line, revision, tag, upstream }).
 export function recordRun({ tools, catalogs, plans, now }) {
-  const run = { catalogs: {}, changes: [], toolReleases: [] };
+  const run = { catalogs: {}, changes: [], unreleased: [] };
   for (const tool of tools) {
     const entries = catalogs[tool.name] ?? [];
     const plan = plans[tool.name];
     const targets = plan.versions.filter((v) => v.reason === 'published').map((v) => buildTarget(tool, v.version));
     const recorded = (t) => entries.some((e) => e.version === t.version && e.revision >= t.revision);
     for (const t of targets.filter((t) => !recorded(t))) {
-      run.toolReleases.push({ tool: tool.name, version: t.version, line: t.line, revision: t.revision, tag: t.tag, upstream: plan.upstream });
+      run.unreleased.push({ tool: tool.name, version: t.version, line: t.line, revision: t.revision, tag: t.tag, upstream: plan.upstream });
     }
     const merged = mergeCatalog(tool, entries, targets, { now });
     run.catalogs[tool.name] = merged.entries;

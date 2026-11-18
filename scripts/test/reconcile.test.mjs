@@ -29,7 +29,7 @@ test('a run records every version whose tool image exists and that the catalog l
     maven: { tool: 'maven', upstream: null, versions: [{ version: '3.9.16', decision: 'skip', reason: 'published' }] },
   };
   const run = recordRun({ tools: [maven, node], catalogs, plans, now });
-  assert.deepEqual(run.toolReleases, [
+  assert.deepEqual(run.unreleased, [
     { tool: 'node', version: '26.11.1', line: '26', revision: 2, tag: 'node-26.11.1-r2', upstream: 'https://github.com/nodejs/node' },
     { tool: 'node', version: '26.11.2', line: '26', revision: 1, tag: 'node-26.11.2-r1', upstream: 'https://github.com/nodejs/node' },
   ]);
@@ -42,7 +42,7 @@ test('a run records every version whose tool image exists and that the catalog l
   ]);
 
   const again = recordRun({ tools: [maven, node], catalogs: run.catalogs, plans, now });
-  assert.deepEqual([again.toolReleases, again.changes], [[], []], 'a second run records nothing');
+  assert.deepEqual([again.unreleased, again.changes], [[], []], 'a second run records nothing');
 });
 
 // release-please reads each nested commit block as one more commit (googleapis/release-please src/commit.ts, splitMessages):
