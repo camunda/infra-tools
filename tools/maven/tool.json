@@ -1,0 +1,19 @@
+{
+  "source": {
+    "datasource": "maven",
+    "packageName": "org.apache.maven:apache-maven",
+    "versioning": "maven"
+  },
+  "publish": {
+    "lines": {
+      "3.9": {
+        "versions": ["3.9.16"],
+        "revisions": { "3.9.16": 2 },
+        "reason": "camunda/camunda ./mvnw (maven-wrapper.properties); one fixed version until the reconciler publishes the line; r2 replaces the PoC build"
+      }
+    }
+  },
+  "install": {
+    "addToPath": "bin"
+  }
+}

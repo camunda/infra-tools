@@ -1,0 +1,34 @@
+---
+name: infra-tools
+description: Installs the selected tools into the runner tool cache from the infra-tools index, and puts plain tools on PATH.
+
+inputs:
+  tools:
+    description: >-
+      Plain tools, one selector per line (`<tool>[@<version prefix>]`, e.g. `maven@3`), resolved to the highest matching version; present tools are not downloaded.
+    default: ''
+  token:
+    description: Token allowed to pull from the index registry.
+    default: ${{ github.token }}
+  index:
+    description: >-
+      Index to install from, `<registry>/<repository>:<tag>` (e.g. `ghcr.io/camunda/infra-tools:tracer-tools`). Required until the first release, which becomes the default.
+    default: ''
+
+outputs:
+  versions:
+    description: >-
+      Resolved version per selected tool, as JSON (`{"maven":"3.9.16"}`); `{}` when nothing is installed.
+    value: ${{ steps.setup.outputs.versions }}
+
+runs:
+  using: composite
+  steps:
+  - id: setup
+    name: Install tools
+    shell: bash
+    env:
+      TOOLS: ${{ inputs.tools }}
+      TOKEN: ${{ inputs.token }}
+      INDEX: ${{ inputs.index }}
+    run: '"${GITHUB_ACTION_PATH}/scripts/action/setup.sh"'
