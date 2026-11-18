@@ -20,11 +20,8 @@ export async function readCatalog(name) {
   return JSON.parse((await readOptional(join(ROOT, 'published', `${name}.json`))) ?? '[]');
 }
 
-// Version of the latest release (release-please manifest), undefined before the first release.
-export async function readReleaseVersion() {
-  const manifest = await readOptional(join(ROOT, '.github/config/.release-please-manifest.json'));
-  return manifest ? JSON.parse(manifest)['.'] : undefined;
-}
+// The release-please manifest, which holds the version of the latest release ('.').
+export const RELEASE_MANIFEST = '.github/config/.release-please-manifest.json';
 
 async function readOptional(path) {
   try {

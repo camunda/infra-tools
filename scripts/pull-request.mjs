@@ -14,7 +14,7 @@ import { parseArgs } from 'node:util';
 import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
 import { Registry } from './lib/registry.mjs';
-import { readCatalog, readReleaseVersion, readToolDefinition, readToolNames, ROOT } from './lib/repository.mjs';
+import { readCatalog, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const { values } = parseArgs({
@@ -46,8 +46,15 @@ for (const name of names) {
   baseTools[name] = parseToolDefinition(name, JSON.parse(json));
 }
 
+// The latest release is read at the base: a release PR already holds the next version, whose index exists only once it is merged.
+let manifest;
+try {
+  manifest = git('show', `${values.base}:${RELEASE_MANIFEST}`);
+} catch {
+  // before the first release
+}
+const previousVersion = manifest ? JSON.parse(manifest)['.'] : undefined;
 const registry = new Registry(values.image);
-const previousVersion = await readReleaseVersion();
 const previousTag = `${previousVersion}-tools`;
 if (previousVersion && !(await registry.exists(previousTag))) throw new Error(`${values.image}:${previousTag}: index of the latest release not found`);
 
