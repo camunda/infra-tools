@@ -353,6 +353,21 @@ test('mode: validate fails on an unknown tool', async () => {
   assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: unknown tool 'mavne'; tools: .*\bmaven\b/m);
 });
 
+// The consumer workflows ci.yml validates on a real runner.
+test('mode: validate passes the valid fixture of ci.yml and fails its invalid one', async () => {
+  const fixture = (name) => readFile(new URL(`./fixtures/${name}`, import.meta.url), 'utf8');
+  await repositoryFile('.github/workflows/valid-selectors.yml', await fixture('valid-selectors.yml'));
+  const valid = await validate();
+  assert.equal(valid.status, 0, valid.log);
+  await repositoryFile('.github/workflows/invalid-selectors.yml', await fixture('invalid-selectors.yml'));
+  const invalid = await validate();
+  assert.notEqual(invalid.status, 0);
+  const errors = invalid.log.split('\n').filter((l) => l.startsWith('::error'));
+  assert.equal(errors.length, 2, invalid.log);
+  assert.match(errors[0], /maven@99 matches no version/);
+  assert.match(errors[1], /maven is a plain tool: list it under tools, not tool-cache/);
+});
+
 test('an unknown mode fails rather than installing', async () => {
   const result = await action({ tools: 'maven@3.9', env: { MODE: 'valdiate' } });
   assert.notEqual(result.status, 0);
