@@ -55,6 +55,7 @@ test('a tool-cache tool names its setup-* action and version input for the usage
   rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq' } }, 'tools/jq/tool.json: setup needs action and versionInput');
   rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', with: { cache: true } } }, 'tools/jq/tool.json: setup.with maps inputs to strings');
   rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', with: 'cache' } }, 'tools/jq/tool.json: setup.with maps inputs to strings');
+  rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', with: null } }, 'tools/jq/tool.json: setup.with maps inputs to strings');
   rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', uses: 'x' } }, 'tools/jq/tool.json: unknown option setup.uses');
   rejects({ source, publish: { lines }, install: { addToPath: 'bin' }, setup: { action: 'actions/setup-jq', versionInput: 'version' } }, 'tools/jq/tool.json: setup is for tool-cache tools; a plain tool (install.addToPath) is ready to use');
 });
