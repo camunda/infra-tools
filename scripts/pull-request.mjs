@@ -55,11 +55,9 @@ const { builds, warnings, notes } = await checkPullRequest({
   tools,
   baseTools,
   changedFiles,
-  tagExists: (tag) => registry.exists(tag),
-  now: Date.now(),
+  plan: { tagExists: (tag) => registry.exists(tag), now: Date.now() },
   catalogs,
-  previousIndex: previousVersion ? await readIndex(registry, previousTag) : [],
-  previousVersion,
+  previousRelease: { index: previousVersion ? await readIndex(registry, previousTag) : [], version: previousVersion },
   toolImageLayers: (tag) => registry.toolImageLayers(tag),
   repository: values.repository,
 });
