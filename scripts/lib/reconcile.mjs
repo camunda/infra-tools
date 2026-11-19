@@ -1,6 +1,8 @@
 // Reconciler run (spec §5.3): what a run records once its builds are pushed, and the safeguards around it.
+import { isDeepStrictEqual } from 'node:util';
 import { buildTarget } from './build.mjs';
 import { mergeCatalog } from './catalog.mjs';
+import { buildCommit } from './tool-release.mjs';
 
 // Fails when a catalog version, retired or not (older releases keep it), lost its tag: published tool images never change, so
 // it must not be planned and pushed again. tagExists(tag): Registry.exists, whose errors other than 404 fail the run.
@@ -15,9 +17,13 @@ export async function checkCatalogTags({ catalogs, tagExists }) {
 // plans: planTool's result per tool, once the run's builds are pushed. Every version whose tool image exists (reason
 // published) is recorded when the catalog lacks it at that revision, whether this run or an earlier one that failed before
 // its record commit pushed it; failed builds stay planned and are not recorded.
+// Fails when one was built with another install block than the tool definition's (an earlier run's push, then an install
+// change without a revision bump): the action installs from the tool cache path tools/<tool>/tool.json gives, which its tool
+// image does not hold. registry: Registry, whose tool images carry their build commit; readToolDefinitionAt(name, commit):
+// the tool definition at that commit, which throws when it cannot be read.
 // Returns the catalogs of every tool, the changes of the record commit, and unreleased, the recorded tool versions that need
 // a tool release ({ tool, version, line, revision, tag, upstream }).
-export function recordRun({ tools, catalogs, plans, now }) {
+export async function recordRun({ tools, catalogs, plans, now, registry, readToolDefinitionAt }) {
   const run = { catalogs: {}, changes: [], unreleased: [] };
   for (const tool of tools) {
     const entries = catalogs[tool.name] ?? [];
@@ -25,6 +31,12 @@ export function recordRun({ tools, catalogs, plans, now }) {
     const targets = plan.versions.filter((v) => v.reason === 'published').map((v) => buildTarget(tool, v.version));
     const recorded = (t) => entries.some((e) => e.version === t.version && e.revision >= t.revision);
     for (const t of targets.filter((t) => !recorded(t))) {
+      const commit = await buildCommit({ tool, recorded: t, registry });
+      if (!isDeepStrictEqual((await readToolDefinitionAt(tool.name, commit)).install, tool.install)) {
+        const where = `tools/${tool.name}/tool.json`;
+        const fix = `bump the revision of ${tool.name} ${t.version} in ${where} to build it again`;
+        throw new Error(`${t.tag}: its tool image was built with another install block (${where} at ${commit}) and does not hold the tool cache path the action installs from; ${fix}`);
+      }
       run.unreleased.push({ tool: tool.name, version: t.version, line: t.line, revision: t.revision, tag: t.tag, upstream: plan.upstream });
     }
     const merged = mergeCatalog(tool, entries, targets, { now });
