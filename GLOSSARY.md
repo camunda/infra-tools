@@ -103,3 +103,7 @@ _Avoid_: version constraint, version spec
 **Present**:
 A tool is present when the tool cache holds a complete version matching its selector, whatever installed it.
 _Avoid_: installed, pre-installed, cached
+
+**Install figures**:
+What one action run reports per selected tool: whether it was present, installed or failed, its version, and for an installed tool its size, duration and the registry it came from.
+_Avoid_: metrics, telemetry, stats
