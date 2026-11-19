@@ -1,0 +1,16 @@
+[
+  {
+    "version": "21.0.13+9.0.LTS",
+    "line": "21",
+    "folderVersion": "21.0.13-9.0.LTS",
+    "revision": 2,
+    "tag": "java-21.0.13-9.0.LTS-r2",
+    "cacheFolder": "Java_Temurin-Hotspot_jdk",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "aarch64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-11-19T12:08:27.045Z"
+  }
+]

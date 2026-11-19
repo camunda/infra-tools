@@ -1,0 +1,16 @@
+[
+  {
+    "version": "26.13.1",
+    "line": "26",
+    "folderVersion": "26.13.1",
+    "revision": 2,
+    "tag": "node-26.13.1-r2",
+    "cacheFolder": "node",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-11-19T12:08:27.045Z"
+  }
+]
