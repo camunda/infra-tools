@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, releaseNotes } from '../lib/release.mjs';
+import { buildIndex, previousRelease, releaseBody, releasedVersion, releaseNotes, toolsJson } from '../lib/release.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const java = parseToolDefinition('java', {
@@ -120,4 +120,50 @@ test('the first release has no previous index, and a release without tool change
     releaseNotes({ version: '0.1.1', previousVersion: '0.1.0', repository: 'camunda/infra-tools', before: after, after }),
     'Index: `0.1.1-tools`, previous: `0.1.0-tools`\n\nNo tool changes.\n',
   );
+});
+
+test('the previous release is the highest X.Y.Z index below the release, by number', () => {
+  const tags = ['0.2.0-tools', '0.10.0-tools', '0.9.0-tools', 'tracer-tools', 'maven-3.9.16-r1', '1.0.0-tools'];
+  assert.equal(previousRelease(tags, '0.11.0'), '0.10.0');
+  assert.equal(previousRelease(tags, '0.10.0'), '0.9.0');
+  assert.equal(previousRelease(tags, '0.2.0'), undefined);
+});
+
+test('the latest release is the version of the release-please manifest, none before the first release', () => {
+  assert.equal(releasedVersion('{".": "0.3.0"}\n'), '0.3.0');
+  // release-please needs a manifest: it starts at 0.0.0, which no release has.
+  assert.equal(releasedVersion('{".": "0.0.0"}\n'), undefined);
+  assert.equal(releasedVersion(undefined), undefined);
+});
+
+test('tools.json lists every tool version of the index per platform with its tag, layer digest and size', () => {
+  const entries = [...both('maven', '3.9.16', 2, 'm', '3.9'), ...both('java', '21.0.12+8', 1, 'j', '21')].map((e) => ({ ...e, size: 100 }));
+  assert.deepEqual(toolsJson({ version: '0.3.0', image: 'ghcr.io/camunda/infra-tools', entries }), {
+    release: '0.3.0',
+    index: 'ghcr.io/camunda/infra-tools:0.3.0-tools',
+    tools: {
+      java: [
+        {
+          version: '21.0.12+8', line: '21', revision: 1, tag: 'java-21.0.12-8-r1',
+          platforms: { 'linux/amd64': { digest: 'j-linux/amd64', size: 100 }, 'linux/arm64': { digest: 'j-linux/arm64', size: 100 } },
+        },
+      ],
+      maven: [
+        {
+          version: '3.9.16', line: '3.9', revision: 2, tag: 'maven-3.9.16-r2',
+          platforms: { 'linux/amd64': { digest: 'm-linux/amd64', size: 100 }, 'linux/arm64': { digest: 'm-linux/arm64', size: 100 } },
+        },
+      ],
+    },
+  });
+});
+
+test('the release notes get the tool tables after the changelog of release-please, once', () => {
+  const changelog = '## [0.3.0](https://example.com/compare/0.2.0...0.3.0) (2026-11-19)\n\n### Features\n\n* **maven:** publish 3.9.16\n';
+  const notes = 'Index: `0.3.0-tools`, previous: `0.2.0-tools`\n\nNo tool changes.\n';
+  const body = releaseBody(changelog, notes);
+  assert.equal(body, `${changelog}\n<!-- infra-tools: tools -->\n## Tools\n\n${notes}`);
+  // A rerun replaces the tables.
+  assert.equal(releaseBody(body, 'other\n'), `${changelog}\n<!-- infra-tools: tools -->\n## Tools\n\nother\n`);
+  assert.equal(releaseBody(null, notes), `<!-- infra-tools: tools -->\n## Tools\n\n${notes}`);
 });
