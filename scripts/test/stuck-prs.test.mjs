@@ -8,6 +8,7 @@ const options = { repository: 'camunda/infra-tools', runUrl: 'https://github.com
 const pr = (number, state, ageHours, base = 'main') => ({ number, base, state, action: 'none', behind_by: 0, age_hours: ageHours, blockers: [], automerge: false });
 // The action's processed-prs output, as the workflow passes it on stdin (a here-string adds a newline).
 const output = (...prs) => `${JSON.stringify(prs)}\n`;
+const section = (text) => ({ type: 'section', text: { type: 'mrkdwn', text } });
 
 test('no digest when no PR is dirty or awaiting rebase for 48h or more', () => {
   assert.equal(stuckPrDigest(output(), options), null);
@@ -49,6 +50,36 @@ test('the digest lists stuck PRs by base branch, oldest first, and pings infra-m
       },
     ],
   });
+});
+
+// Slack rejects a section text over 3,000 characters (https://docs.slack.dev/reference/block-kit/blocks/section-block/).
+test('a long list is split between lines into sections of at most 3,000 characters', () => {
+  const prs = Array.from({ length: 40 }, (_, i) => pr(100 + i, 'dirty', 100));
+  const digest = stuckPrDigest(output(...prs, pr(200, 'dirty', 100, 'stable/8.8')), options);
+  const list = digest.blocks.slice(0, -2).map((block) => block.text.text);
+  assert.equal(list.length, 2);
+  for (const text of list) assert.ok(text.length <= 3000, `${text.length} characters`);
+  assert.deepEqual(list.join('\n').split('\n'), [
+    ':warning: *41 Renovate PR(s) not rebased in days*, far past the window where they should have caught up to their base branch:',
+    '• *main*',
+    ...prs.map((p) => `        ◦ <https://github.com/camunda/infra-tools/pull/${p.number}|#${p.number}> stuck 4d (merge conflict)`),
+    '• *stable/8.8*',
+    '        ◦ <https://github.com/camunda/infra-tools/pull/200|#200> stuck 4d (merge conflict)',
+  ]);
+});
+
+// Slack rejects a message of more than 50 blocks (https://docs.slack.dev/reference/block-kit/blocks/). 47 sections of
+// PR lines fit: 30 PRs in the first, after the header and base branch, and 32 in each other (92 characters a line).
+test('a list past 50 blocks is cut after the PR lines that fit and says how many PRs were left out', () => {
+  const digest = stuckPrDigest(output(...Array.from({ length: 2000 }, (_, i) => pr(1000 + i, 'dirty', 100))), options);
+  assert.equal(digest.blocks.length, 50);
+  const list = digest.blocks.slice(0, 47).map((block) => block.text.text);
+  for (const text of list) assert.ok(text.length <= 3000, `${text.length} characters`);
+  const lines = list.join('\n').split('\n');
+  assert.equal(lines.length, 2 + 1502);
+  assert.equal(lines.at(-1), '        ◦ <https://github.com/camunda/infra-tools/pull/2501|#2501> stuck 4d (merge conflict)');
+  assert.deepEqual(digest.blocks[47], section('_…and 498 more PR(s) not listed here, see the <https://github.com/camunda/infra-tools/actions/runs/1|Renovate PR maintainer> run_'));
+  assert.match(digest.blocks[48].text.text, /infra-medic/);
 });
 
 // Quotes and backslashes are kept as they are; Slack reads &, < and > as control characters in mrkdwn, so they are escaped.
