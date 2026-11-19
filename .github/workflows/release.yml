@@ -2,10 +2,10 @@
 name: Release
 
 # Releases (spec §5.5, D25): release-please keeps a release PR up to date with the record commits and the action changes since
-# the latest release (config in .github/config/), and creates release X.Y.Z once release-merge.yml merged it. The release is
-# then published: its X.Y.Z-tools index pushed to ghcr.io, the Added / Replaced / Retired tables added to its notes and
-# tools.json attached. Every release still without tools.json is published, oldest first: a release whose publication failed
-# is completed by the next run, before any later release.
+# the latest release (config in .github/config/), and creates release X.Y.Z once GitHub auto-merged it (release-merge.yml).
+# The release is then published: its X.Y.Z-tools index pushed to ghcr.io, the Added / Replaced / Retired tables added to its
+# notes and tools.json attached. Every release still without tools.json is published, oldest first: a release whose
+# publication failed is completed by the next run, before any later release.
 on:
   push:
     branches:
