@@ -56,7 +56,7 @@ try {
 } catch {
   // before the first release
 }
-const previousVersion = releasedVersion(manifest);
+const previousVersion = releasedVersion(manifest && JSON.parse(manifest));
 const registry = new Registry(values.image);
 const previousTag = `${previousVersion}-tools`;
 if (previousVersion && !(await registry.exists(previousTag))) throw new Error(`${values.image}:${previousTag}: index of the latest release not found`);

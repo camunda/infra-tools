@@ -3,11 +3,18 @@
 import { archOf, isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions } from './versions.mjs';
 
-// The version of the latest release, from the release-please manifest (its text; none when missing). release-please needs
-// a manifest from the start: its initial 0.0.0 is no release.
+// The version of the latest release, from the release-please manifest (parsed; null when missing). release-please needs a
+// manifest from the start: its initial 0.0.0 is no release.
 export function releasedVersion(manifest) {
-  const version = manifest && JSON.parse(manifest)['.'];
+  const version = manifest?.['.'];
   return version === '0.0.0' ? undefined : version;
+}
+
+// The tag of the index the action tests install from, given the release-please manifest (releasedVersion): the latest
+// release's, X.Y.Z-tools; until the first release, the test index the Publish tool workflow fills.
+export function latestIndexTag(manifest) {
+  const version = releasedVersion(manifest);
+  return version ? `${version}-tools` : 'tracer-tools';
 }
 
 // The release before `version`: the highest X.Y.Z below it among the index tags (X.Y.Z-tools) of the registry, none before the

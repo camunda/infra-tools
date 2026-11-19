@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, previousRelease, releaseBody, releasedVersion, releaseNotes, toolsJson } from '../lib/release.mjs';
+import { buildIndex, latestIndexTag, previousRelease, releaseBody, releasedVersion, releaseNotes, toolsJson } from '../lib/release.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const java = parseToolDefinition('java', {
@@ -130,10 +130,16 @@ test('the previous release is the highest X.Y.Z index below the release, by numb
 });
 
 test('the latest release is the version of the release-please manifest, none before the first release', () => {
-  assert.equal(releasedVersion('{".": "0.3.0"}\n'), '0.3.0');
+  assert.equal(releasedVersion({ '.': '0.3.0' }), '0.3.0');
   // release-please needs a manifest: it starts at 0.0.0, which no release has.
-  assert.equal(releasedVersion('{".": "0.0.0"}\n'), undefined);
-  assert.equal(releasedVersion(undefined), undefined);
+  assert.equal(releasedVersion({ '.': '0.0.0' }), undefined);
+  assert.equal(releasedVersion(null), undefined);
+});
+
+test('the action tests install from the index of the latest release, or from the tracer index before the first release', () => {
+  assert.equal(latestIndexTag({ '.': '0.3.0' }), '0.3.0-tools');
+  assert.equal(latestIndexTag({ '.': '0.0.0' }), 'tracer-tools');
+  assert.equal(latestIndexTag(null), 'tracer-tools');
 });
 
 test('tools.json lists every tool version of the index per platform with its tag, layer digest and size', () => {
