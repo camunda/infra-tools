@@ -30,6 +30,7 @@ export function buildTarget(tool, version, { catalogEntry } = {}) {
       FOLDER_VERSION: folderVersion(version),
       CACHE_FOLDER: cacheFolder,
       ARCH_FOLDERS: Object.entries(archFolders).map(([arch, folder]) => `${arch}=${folder}`).join(' '),
+      TEST_PACKAGES: tool.test.packages.join(' '),
     },
   };
 }

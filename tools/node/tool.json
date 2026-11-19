@@ -16,5 +16,8 @@
   "setup": {
     "action": "actions/setup-node",
     "versionInput": "node-version"
+  },
+  "test": {
+    "packages": ["libatomic1"]
   }
 }
