@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, latestIndexTag, previousRelease, releaseBody, releasedVersion, releaseNotes, toolsJson } from '../lib/release.mjs';
+import { buildIndex, latestIndexTag, previousRelease, releaseBody, releasedVersion, releaseNotes, toolsJson, unpublishedReleases } from '../lib/release.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const java = parseToolDefinition('java', {
@@ -140,6 +140,20 @@ test('the action tests install from the index of the latest release, or from the
   assert.equal(latestIndexTag({ '.': '0.3.0' }), '0.3.0-tools');
   assert.equal(latestIndexTag({ '.': '0.0.0' }), 'tracer-tools');
   assert.equal(latestIndexTag(null), 'tracer-tools');
+});
+
+test('every release without tools.json is left to publish, oldest first; tool releases and drafts are not releases', () => {
+  const release = (tag, assets = [], extra = {}) => ({ tag_name: tag, draft: false, assets: assets.map((name) => ({ name })), ...extra });
+  const releases = [
+    release('0.10.0'),
+    release('java-21.0.12-8-r1', ['java.tar']),
+    release('0.9.0', ['tools.json']),
+    release('0.2.0', ['notes.txt']),
+    release('0.11.0', [], { draft: true }),
+    release('maven-3.9.16-r1'),
+  ];
+  assert.deepEqual(unpublishedReleases(releases).map((r) => r.tag_name), ['0.2.0', '0.10.0']);
+  assert.deepEqual(unpublishedReleases([release('0.9.0', ['tools.json'])]), []);
 });
 
 test('tools.json lists every tool version of the index per platform with its tag, layer digest and size', () => {

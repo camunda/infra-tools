@@ -1,11 +1,11 @@
 // Release indexes (spec §5.5), one command each:
 //
 // node index.mjs release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]
-//   Publishes the latest release, the version of the release-please manifest, once release-please created it: pushes its
-//   index to --image (lib/publish-index.mjs publishRelease) from the tool definitions and the catalog at its tag, appends the
-//   Added / Replaced / Retired tables to its notes and attaches tools.json, written to --out (default build/out/release)
-//   first. tools.json is attached last: a release that has it is published, and is left alone; a run that failed before is
-//   completed by the next one. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN).
+//   Publishes every release (X.Y.Z) without tools.json, oldest first, once release-please created it: pushes its index to
+//   --image (lib/publish-index.mjs publishRelease) from the tool definitions and the catalog at its tag, appends the Added /
+//   Replaced / Retired tables to its notes and attaches tools.json, written to --out (default build/out/release) first.
+//   tools.json is attached last: a release that has it is published, and is left alone; a release whose publication failed is
+//   completed by the next run, before any later release. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN).
 //
 // node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>
 //   Prints the index the action tests install from (lib/release.mjs latestIndexTag): the latest release's, from the
@@ -15,13 +15,13 @@
 //   Until the first release, for the manual Publish tool workflow: adds the tool images of the given tool versions to the
 //   index at --index (lib/publish-index.mjs publishIndex) and pushes it.
 import { execFileSync } from 'node:child_process';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { publishIndex, publishRelease } from './lib/publish-index.mjs';
 import { Registry } from './lib/registry.mjs';
-import { latestIndexTag, releaseBody, releasedVersion, releaseNotes, toolsJson } from './lib/release.mjs';
-import { ghJson, readToolDefinition, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
+import { latestIndexTag, releaseBody, releaseNotes, toolsJson, unpublishedReleases } from './lib/release.mjs';
+import { ghApi, ghJson, readToolDefinition, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const USAGE = {
@@ -45,12 +45,10 @@ function options(command, args, { required, defaults = {}, positionals = false }
 
 async function publishReleases(args) {
   const { values } = options('release', args, { required: ['image', 'repository'], defaults: { out: join(ROOT, 'build/out/release') } });
-  const version = releasedVersion(JSON.parse(await readFile(join(ROOT, RELEASE_MANIFEST), 'utf8')));
-  if (!version) return console.log('no release yet: nothing to publish');
-  const release = ghJson(`repos/${values.repository}/releases/tags/${version}`);
-  if (!release) return console.log(`release ${version} not created yet: nothing to publish`);
-  if (release.assets.some((a) => a.name === 'tools.json')) return console.log(`release ${version} already published: ${release.html_url}`);
-  await publishOneRelease(release, values);
+  const releases = JSON.parse(ghApi('', '--paginate', '--slurp', `repos/${values.repository}/releases?per_page=100`)).flat();
+  const unpublished = unpublishedReleases(releases);
+  if (!unpublished.length) return console.log('every release is published');
+  for (const release of unpublished) await publishOneRelease(release, values);
 }
 
 // Publishes one release (a GitHub release: { id, tag_name, body, html_url }).

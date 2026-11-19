@@ -206,7 +206,7 @@ Releases (release-please, D25):
 - One component at `.`, `exclude-paths`: `tools`, `docs`, `build`, `.github` and every entry of `scripts/` except `action/`. Bot record commits (`published/`) and action changes (`action.yml`, `scripts/action/`) produce release PRs.
 - Config in `.github/config/` (infra convention); tags `X.Y.Z` (D30).
 - A daily workflow merges the open release PR if it is green; the merge creates `X.Y.Z`.
-- On `release_created` (`index.mjs release`):
+- On every push to `main`, each release without `tools.json`, oldest first, so a release whose publication failed is completed before a later one (`index.mjs release`):
   1. Index = previous index + `published/` entries − retired versions; fail if a declared entry has no tag.
   2. Push the per-platform artifact manifests and the `X.Y.Z-tools` index; no layer is uploaded twice.
   3. Compare with the previous index; append the Added / Replaced / Retired tables (with tool release links) to the notes.

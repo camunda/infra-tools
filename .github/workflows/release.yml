@@ -4,7 +4,8 @@ name: Release
 # Releases (spec §5.5, D25): release-please keeps a release PR up to date with the record commits and the action changes since
 # the latest release (config in .github/config/), and creates release X.Y.Z once release-merge.yml merged it. The release is
 # then published: its X.Y.Z-tools index pushed to ghcr.io, the Added / Replaced / Retired tables added to its notes and
-# tools.json attached. A release whose publication failed is completed by the next run.
+# tools.json attached. Every release still without tools.json is published, oldest first: a release whose publication failed
+# is completed by the next run, before any later release.
 on:
   push:
     branches:
@@ -60,7 +61,7 @@ jobs:
       with:
         github-token: ${{ steps.app-token.outputs.token }}
 
-  # The release of the release-please manifest, once created and until it has tools.json: nothing to do on other runs.
+  # Every release without tools.json, oldest first: nothing to do on most runs.
   publish:
     name: Publish the release
     needs: release-please
@@ -99,7 +100,7 @@ jobs:
           echo "## Release publication failed"
           echo
           echo "Inspect the failed step in the job logs. A failed run reruns its failed jobs up to attempt 3, then alerts #infra-alerts."
-          echo "The release stays unpublished (no tools.json) until a run succeeds: the next push to main, or a rerun of this one, completes it."
+          echo "The release stays unpublished (no tools.json) until a run succeeds: the next push to main, or a rerun of this one, completes it before any later release."
           echo "A catalog version whose tag is missing needs its tool image published again (revision bump) or its version retired."
         } >>"${GITHUB_STEP_SUMMARY}"
 
