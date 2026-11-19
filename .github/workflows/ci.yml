@@ -135,6 +135,7 @@ jobs:
     permissions:
       contents: read
       packages: read # pull the index and the tool images
+      id-token: write # CI Analytics WIF auth (submit-build-status)
     strategy:
       fail-fast: false
       matrix:
@@ -143,6 +144,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
+    - name: Start the build monitor
+      uses: camunda/infra-global-github-actions/start-build-monitor@main
+      continue-on-error: true
+
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -190,6 +195,19 @@ jobs:
       run: |
         [[ "${PRESENT}" == "${INSTALLED}" ]]
         [[ "${UNKNOWN}" == failure ]]
+
+    - name: Check the install figures of the three steps
+      run: |
+        jq -sce 'map([.selector, .outcome, .error]) == [["maven@3", "installed", null], ["maven@3", "present", null], ["maven@99", "failed", "index"]]' \
+          "${RUNNER_TEMP}/ci-analytics/tool-installs.jsonl"
+
+    # submit-build-status loads the install figures the action wrote into CI Analytics (D59, ADR 0010).
+    - name: Submit the build status and install figures
+      if: always()
+      continue-on-error: true
+      uses: camunda/infra-global-github-actions/submit-build-status@main
+      with:
+        build_status: ${{ job.status }}
 
   action-validate:
     name: Test action (validate mode)
@@ -249,6 +267,7 @@ jobs:
     permissions:
       contents: read
       packages: read # pull the index and the tool images
+      id-token: write # CI Analytics WIF auth (submit-build-status)
     strategy:
       fail-fast: false
       matrix:
@@ -256,6 +275,10 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 10
     steps:
+    - name: Start the build monitor
+      uses: camunda/infra-global-github-actions/start-build-monitor@main
+      continue-on-error: true
+
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -332,6 +355,14 @@ jobs:
       run: |
         [[ "$(command -v node)" == "${NODE_HOME}/bin/node" ]]
         test -f "${NODE_HOME}/infra-tools-marker"
+
+    # submit-build-status loads the install figures the action wrote into CI Analytics (D59, ADR 0010).
+    - name: Submit the build status and install figures
+      if: always()
+      continue-on-error: true
+      uses: camunda/infra-global-github-actions/submit-build-status@main
+      with:
+        build_status: ${{ job.status }}
 
   action-macos:
     name: Test action (macos-latest)

@@ -21,7 +21,16 @@ now_ms() { echo $((${EPOCHREALTIME//[.,]/} / 1000)); }
 seconds() { printf '%d.%d' $(($1 / 1000)) $(($1 % 1000 / 100)); }
 begin="$(now_ms)"
 mb() { awk -v b="$1" 'BEGIN { printf "%.1f", b / 1048576 }'; }
+# The selectors being installed: a failure while installing them (fail with an error: login, index, pull or extract)
+# writes their install figures first.
+installing=()
+# fail <message> [<error>]: the message as an error annotation, then exit 1. With an error (login, index, pull or
+# extract), a failed line with that error is written first for each selector being installed.
 fail() {
+  local selector
+  if [[ -n "${2:-}" ]]; then
+    for selector in "${installing[@]}"; do write_figure "${selector}" failed "$(jq -nc --arg error "$2" '{$error}')"; done
+  fi
   echo "::error::infra-tools: $1"
   exit 1
 }
@@ -35,6 +44,26 @@ ARM64) arch=arm64 ;;
 esac
 tool_cache="${RUNNER_TOOL_CACHE:?}"
 tmp="${RUNNER_TEMP:?}"
+
+# Install figures (spec §5.6, ADR 0010): one JSON line per selected tool, appended as soon as its outcome is known, for
+# submit-build-status to load into CI Analytics at job end. `release` is the index tag. Writing them never fails the action.
+figures_file="${tmp}/ci-analytics/tool-installs.jsonl"
+release="${INDEX:+${INDEX##*:}}"
+# write_figure <selector> <outcome> [<fields>]: the selector's line, with its version when resolved and the given JSON fields.
+# A write error is warned about once, and no further line is written.
+write_figure() {
+  [[ -n "${figures_file}" ]] || return 0
+  if ! {
+    mkdir -p "${figures_file%/*}" &&
+      jq -nc --arg selector "$1" --arg version "${version[$1]:-}" --arg outcome "$2" --argjson fields "${3:-"{}"}" \
+        --arg release "${release}" --arg platform "linux/${arch}" \
+        '{tool: ($selector | sub("@.*"; "")), $selector, $version, $outcome} + $fields + {$release, $platform}
+          | with_entries(select(.value != ""))' >>"${figures_file}"
+  } 2>/dev/null; then
+    echo "::warning::infra-tools: cannot write the install figures to ${figures_file}"
+    figures_file=""
+  fi
+}
 
 # Highest version among the arguments that matches a selector's version prefix: equal, or followed by `.`, `+` or `-`
 # (`+` is written `-` in tool cache folders). Ordered by every number, build metadata included (D23).
@@ -76,7 +105,7 @@ registry="" api="" auth=() layers=""
 
 # Logs in to the index's registry and reads the layers of a platform's manifest (amd64 or arm64, this runner's by default).
 connect() {
-  [[ -n "${INDEX:-}" ]] || fail "no index to install from: set the index input"
+  [[ -n "${INDEX:-}" ]] || fail "no index to install from: set the index input" index
   registry="${INDEX%%/*}"
   local platform="${1:-${arch}}" repository="${INDEX#*/}" challenge realm service bearer digest
   local name="${repository%:*}"
@@ -87,21 +116,21 @@ connect() {
   local started
   started="$(now_ms)"
   challenge="$(curl -sS --retry 3 -o /dev/null -D - -H "Accept: ${media_index}" "${api}/manifests/${repository##*:}" \
-    | tr -d '\r' | sed -nE 's/^[Ww][Ww][Ww]-[Aa]uthenticate: *//p')" || fail "cannot reach ${registry}"
+    | tr -d '\r' | sed -nE 's/^[Ww][Ww][Ww]-[Aa]uthenticate: *//p')" || fail "cannot reach ${registry}" login
   if [[ "${challenge}" == Bearer* ]]; then
     realm="$(sed -nE 's/.*realm="([^"]+)".*/\1/p' <<<"${challenge}")"
     service="$(sed -nE 's/.*service="([^"]+)".*/\1/p' <<<"${challenge}")"
     bearer="$(curl -fsSL --retry 3 ${TOKEN:+-u "token:${TOKEN}"} "${realm}?service=${service}&scope=repository:${name}:pull" \
-      | jq -r '.token // .access_token // empty')" || fail "login to ${registry} failed"
+      | jq -r '.token // .access_token // empty')" || fail "login to ${registry} failed" login
     auth=(-H "Authorization: Bearer ${bearer}")
   fi
   echo "login ${registry}: $(($(now_ms) - started)) ms"
   started="$(now_ms)"
   digest="$(get -H "Accept: ${media_index}" "${api}/manifests/${repository##*:}" \
     | jq -r --arg arch "${platform}" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest')" \
-    || fail "cannot read the index ${INDEX}"
-  [[ -n "${digest}" ]] || fail "the index ${INDEX} has no linux/${platform} manifest"
-  layers="$(get -H "Accept: ${media_manifest}" "${api}/manifests/${digest}" | jq -c .layers)" || fail "cannot read the index ${INDEX}"
+    || fail "cannot read the index ${INDEX}" index
+  [[ -n "${digest}" ]] || fail "the index ${INDEX} has no linux/${platform} manifest" index
+  layers="$(get -H "Accept: ${media_manifest}" "${api}/manifests/${digest}" | jq -c .layers)" || fail "cannot read the index ${INDEX}" index
   echo "index: $(($(now_ms) - started)) ms"
   echo "::endgroup::"
 }
@@ -124,14 +153,14 @@ install_layer() {
       break
     fi
     echo "::warning::infra-tools: ${tool} download failed or does not match its digest (attempt ${attempt})"
-    ((attempt < 3)) || fail "${tool}: could not download layer ${digest}"
+    ((attempt < 3)) || fail "${tool}: could not download layer ${digest}" pull
     sleep "${attempt}"
   done
   rm -rf "${target}" "${target}.complete"
   mkdir -p "${tool_cache}"
-  tar xzf "${file}" -C "${tool_cache}" --strip-components=2 --exclude='*.complete'
+  tar xzf "${file}" -C "${tool_cache}" --strip-components=2 --exclude='*.complete' || fail "${tool}: cannot extract layer ${digest}" extract
   rm -f "${file}"
-  [[ -d "${target}" ]] || fail "${tool}: layer ${digest} does not hold ${target#"${tool_cache}"/}"
+  [[ -d "${target}" ]] || fail "${tool}: layer ${digest} does not hold ${target#"${tool_cache}"/}" extract
   touch "${target}.complete"
 }
 
@@ -256,18 +285,22 @@ for entry in "${listed[@]}"; do
     # Folders write `+` as `-`; the first `-` is the build metadata one, since prereleases are never published (D41).
     version["${selector}"]="${hit/-/+}"
     detail["${selector}"]=cached
+    write_figure "${selector}" present
   else
     missing+=("${selector}")
   fi
 done
 
 if ((${#missing[@]})); then
+  installing=("${missing[@]}")
   connect
   for selector in "${missing[@]}"; do
+    installing=("${selector}")
     tool="${selector%%@*}"
     mapfile -t candidates < <(published "${tool}")
     resolved="$(highest "${want[${selector}]}" "${candidates[@]}")"
-    [[ -n "${resolved}" ]] || fail "${selector} matches no version in ${INDEX}"
+    [[ -n "${resolved}" ]] || fail "${selector} matches no version in ${INDEX}" index
+    version["${selector}"]="${resolved}"
     layer="$(jq -c --arg tool "${tool}" --arg version "${resolved}" --arg a "${annotation}" \
       '[.[] | select(.annotations[$a + ".tool"] == $tool and .annotations[$a + ".version"] == $version)][0]' <<<"${layers}")"
     target="${tool_cache}/${folder[${selector}]}/${resolved//+/-}/${arch_folder[${selector}]}"
@@ -276,7 +309,8 @@ if ((${#missing[@]})); then
     install_layer "${tool}" "$(jq -r .digest <<<"${layer}")" "${target}"
     took="$(($(now_ms) - started))"
     home["${selector}"]="${target}"
-    version["${selector}"]="${resolved}"
+    write_figure "${selector}" installed "$(jq -nc --argjson size "${size}" --argjson took "${took}" --arg registry "${registry}" \
+      '{size_bytes: $size, duration_ms: $took, $registry}')"
     detail["${selector}"]="installed $(mb "${size}") MB in $(seconds "${took}") s ($(mb $((size * 1000 / (took > 0 ? took : 1)))) MB/s) from ${registry}"
   done
 fi
