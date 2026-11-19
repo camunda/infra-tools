@@ -6,8 +6,8 @@
 // version, tag, failing step (build or test) and log excerpt are written to that file as JSON, and to the job summary
 // ($GITHUB_STEP_SUMMARY), and it exits successfully. A failed push still fails: it is no failure of the tool version.
 import { execFileSync, spawn } from 'node:child_process';
-import { appendFile, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { buildTarget } from './lib/build.mjs';
 import { failureSummary, logExcerpt } from './lib/fix-pr.mjs';
@@ -49,6 +49,7 @@ for (const [step, args] of [['build', ['--provenance=false', 'tool']], ['test', 
   if (log === null) continue;
   if (!values.failure) throw new Error(`docker buildx bake ${args.at(-1)} failed for ${target.tool} ${target.version}`);
   const failure = { tool: target.tool, version: target.version, tag: target.tag, step, excerpt: logExcerpt(log) };
+  await mkdir(dirname(values.failure), { recursive: true });
   await writeFile(values.failure, `${JSON.stringify(failure, null, 2)}\n`);
   if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, failureSummary(failure));
   console.log(`::warning title=${target.tool} ${target.version} failed::the ${step} step failed: handed over to its fix PR, see the job summary`);

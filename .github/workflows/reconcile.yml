@@ -3,7 +3,9 @@ name: Reconcile
 
 # Reconciler (spec §5.3, ADR 0005): publishes every upstream version within the version lines of the tool definitions. Builds,
 # tests and pushes the missing tool images with the job token, creates their tool releases, and records them in one commit per
-# run, pushed to main by the Infra - Misc App, bypass actor of the main ruleset (D49).
+# run, pushed to main by the Infra - Misc App, bypass actor of the main ruleset (D49). A version that fails to build or test is
+# tracked in a fix PR, and every run checks that nothing in range is left unpublished (R17); a failed run alerts #infra-alerts
+# (D54).
 on:
   schedule:
   - cron: '0 */6 * * *' # every 6 hours
@@ -35,6 +37,7 @@ jobs:
     permissions:
       contents: read
       packages: read # read the published tags
+      pull-requests: read # read the fix PRs
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -63,14 +66,15 @@ jobs:
       if: steps.guard.outputs.superseded == 'false'
       run: npm ci --prefix scripts
 
-    # Fails on an upstream or registry outage, and when a catalog version lost its tag.
+    # Fails on an upstream or registry outage, and when a catalog version lost its tag. Versions of open fix PRs are built again.
     - name: Plan the tool versions to publish
       id: plan
       if: steps.guard.outputs.superseded == 'false'
       env:
         GITHUB_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
       run: |
-        node scripts/plan.mjs --image "${IMAGE}" --out "${OUT}"
+        node scripts/plan.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --out "${OUT}"
         echo "builds=$(jq -c . "${OUT}/builds.json")" >>"${GITHUB_OUTPUT}"
 
   build:
@@ -118,14 +122,43 @@ jobs:
       if: steps.guard.outputs.superseded == 'false'
       uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-    # Never over an existing tag: published tool images never change.
+    # Never over an existing tag: published tool images never change. A failed build or test leaves the job green: its failure
+    # goes to the Fix PRs job, which tracks it in a fix PR, and to the job summary. A failed push fails the job.
     - name: Build, test and push the tool image
+      id: build
       if: steps.guard.outputs.superseded == 'false'
       env:
         GITHUB_TOKEN: ${{ github.token }}
         TOOL: ${{ matrix.tool }}
         VERSION: ${{ matrix.version }}
-      run: node scripts/build.mjs "${TOOL}" "${VERSION}" --push "${IMAGE}"
+        TAG: ${{ matrix.tag }}
+      run: |
+        node scripts/build.mjs "${TOOL}" "${VERSION}" --push "${IMAGE}" --failure "${OUT}/failures/${TAG}.json"
+        if [[ -f "${OUT}/failures/${TAG}.json" ]]; then echo "failed=true" >>"${GITHUB_OUTPUT}"; fi
+
+    - name: Upload the build failure
+      if: steps.build.outputs.failed == 'true'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: failure-${{ matrix.tag }}
+        path: ${{ env.OUT }}/failures/${{ matrix.tag }}.json
+        if-no-files-found: error
+        overwrite: true # a rerun attempt of the job replaces it
+        retention-days: 7
+
+    - name: Report failure
+      if: failure()
+      env:
+        TOOL: ${{ matrix.tool }}
+        VERSION: ${{ matrix.version }}
+      run: |
+        {
+          echo "## ${TOOL} ${VERSION}: failed"
+          echo
+          echo "A failed build or test is tracked in a fix PR and leaves this job green: this failure is another one, such as a push to ghcr.io."
+          echo "Inspect the failed step in the job logs. A registry error is usually transient: a scheduled or push run reruns its failed jobs"
+          echo "up to attempt 3, then alerts #infra-alerts, and the next run plans the version again."
+        } >>"${GITHUB_STEP_SUMMARY}"
 
   record:
     name: Record
@@ -213,6 +246,166 @@ jobs:
         git commit --file "${OUT}/commit.txt"
         git push origin HEAD:main
 
+  fix-prs:
+    name: Fix PRs
+    needs:
+    - plan
+    - build
+    - record
+    # Also after failed builds or a failed record: failures are tracked and completeness is checked against the published tags.
+    if: always() && needs.plan.result == 'success'
+    permissions:
+      contents: read
+      packages: read # read the published tags
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    # A superseded run's failures were built with tool definitions main no longer has: the run on the tip tracks its own.
+    - name: Check the run is not superseded
+      id: guard
+      run: scripts/superseded.sh
+
+    # Fix PRs opened by the Infra - Misc App start their checks; ones opened with the job token would not.
+    - name: Generate a GitHub token
+      id: app-token
+      if: steps.guard.outputs.superseded == 'false'
+      uses: camunda/infra-global-github-actions/generate-github-app-token-from-vault-secrets@main
+      with:
+        github-app-id-vault-key: GITHUB_APP_ID
+        github-app-id-vault-path: secret/data/products/infra/ci/team-infrastructure
+        github-app-private-key-vault-key: GITHUB_APP_PRIVATE_KEY
+        github-app-private-key-vault-path: secret/data/products/infra/ci/team-infrastructure
+        vault-auth-method: jwt
+        vault-auth-jwt-role: ${{ secrets.VAULT_JWT_ROLE }}
+        vault-auth-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
+        vault-auth-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        vault-url: ${{ secrets.VAULT_ADDR }}
+
+    - name: Set up Node.js
+      if: steps.guard.outputs.superseded == 'false'
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+        cache: npm
+        cache-dependency-path: scripts/package-lock.json
+
+    - name: Install dependencies
+      if: steps.guard.outputs.superseded == 'false'
+      run: npm ci --prefix scripts
+
+    # None when every build passed.
+    - name: Download the build failures
+      if: steps.guard.outputs.superseded == 'false'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: failure-*
+        merge-multiple: true
+        path: ${{ env.OUT }}/failures
+
+    - name: Open, update and close the fix PRs
+      if: steps.guard.outputs.superseded == 'false'
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        REPOSITORY: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: node scripts/fix-pr.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --failures "${OUT}/failures" --run-url "${RUN_URL}"
+
+    # After the fix PRs: a version this run failed to build is tracked by now.
+    - name: Check that every version in range is published or tracked (R17)
+      if: steps.guard.outputs.superseded == 'false'
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        REPOSITORY: ${{ github.repository }}
+      run: node scripts/plan.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --check
+
+    - name: Report failure
+      if: failure()
+      run: |
+        {
+          echo "## Fix PRs or completeness check failed"
+          echo
+          echo "Inspect the failed step in the job logs."
+          echo "- **Open, update and close the fix PRs**: a GitHub API error is usually transient; the failures of the next run open the fix PRs again."
+          echo "- **Check that every version in range is published or tracked**: the versions it lists are neither published nor in a fix PR,"
+          echo "  usually because their build job failed or was cancelled before handing its failure over (see the build jobs of this run)."
+          echo "  The next run plans them again."
+        } >>"${GITHUB_STEP_SUMMARY}"
+
+  # Retry transient failures (e.g. registry or GitHub API errors) of unattended runs; notify alerts after the last attempt.
+  rerun-failed-jobs:
+    name: Rerun failed jobs
+    needs:
+    - plan
+    - build
+    - record
+    - fix-prs
+    if: failure() && github.event_name != 'workflow_dispatch' && fromJSON(github.run_attempt) < 3
+    permissions:
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Retrigger failed jobs
+      uses: camunda/infra-global-github-actions/rerun-failed-run@main
+      with:
+        run-id: ${{ github.run_id }}
+        repository: ${{ github.repository }}
+        vault-addr: ${{ secrets.VAULT_ADDR }}
+        vault-auth-method: jwt
+        vault-jwt-role: ${{ secrets.VAULT_JWT_ROLE }}
+        vault-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
+        vault-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+
+  # An unattended run (scheduled, or on push to main) that still fails after its last attempt, or whose retry could not be
+  # triggered: reconciler and completeness-check failures alert #infra-alerts (D54).
+  notify:
+    name: Notify on failure
+    needs:
+    - plan
+    - build
+    - record
+    - fix-prs
+    - rerun-failed-jobs
+    if: >-
+      failure() && github.event_name != 'workflow_dispatch' && (fromJSON(github.run_attempt) >= 3 || needs.rerun-failed-jobs.result == 'failure')
+    permissions:
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Import Secrets
+      id: secrets
+      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+      with:
+        url: ${{ secrets.VAULT_ADDR }}
+        method: jwt
+        role: ${{ secrets.VAULT_JWT_ROLE }}
+        path: ${{ secrets.VAULT_JWT_PATH }}
+        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        exportEnv: false # we rely on step outputs, no need for environment variables
+        secrets: |
+          secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
+
+    - name: Notify Slack
+      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+      with:
+        webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
+        webhook-type: incoming-webhook
+        errors: true # fail the step when Slack rejects the message: the action only warns by default
+        payload: |
+          text: |-
+            :alert: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>
+            Reconciler failed (failure guidance in the job summaries)
+            <!subteam^S01K6MZC3AQ|infra-medic> — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>
+
   check:
     name: Check Reconcile
     if: always()
@@ -221,6 +414,9 @@ jobs:
     - plan
     - build
     - record
+    - fix-prs
+    - rerun-failed-jobs
+    - notify
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
