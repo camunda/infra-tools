@@ -14,7 +14,7 @@ import { parseArgs } from 'node:util';
 import { publishIndex, publishRelease } from './lib/publish-index.mjs';
 import { Registry } from './lib/registry.mjs';
 import { releaseBody, releasedVersion, releaseNotes, toolsJson } from './lib/release.mjs';
-import { ghApi, readToolDefinition, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
+import { ghJson, readToolDefinition, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const { values, positionals } = parseArgs({
@@ -44,16 +44,6 @@ if (values.release) {
   for (const e of entries) console.log(`  ${e.platform} ${e.tool} ${e.version} ${e.tag} ${e.digest}`);
 }
 
-// gh api returning parsed JSON, or null on 404; any other error throws.
-function ghJson(...args) {
-  try {
-    return JSON.parse(ghApi('', ...args));
-  } catch (err) {
-    if (/\(HTTP 404\)/.test(err.stderr)) return null;
-    throw err;
-  }
-}
-
 async function release() {
   const version = releasedVersion(await readFile(join(ROOT, RELEASE_MANIFEST), 'utf8'));
   if (!version) return console.log('no release yet: nothing to publish');
@@ -63,7 +53,7 @@ async function release() {
   if (existing.assets.some((a) => a.name === 'tools.json')) return console.log(`release ${version} already published: ${existing.html_url}`);
 
   // The tool definitions and the catalog at the release tag: main may have moved since.
-  const file = (path) => ghJson('-H', 'Accept: application/vnd.github.raw+json', `${repo}/contents/${path}?ref=${version}`);
+  const file = (path) => ghJson(`${repo}/contents/${path}?ref=${version}`, { accept: 'application/vnd.github.raw+json' });
   const names = ghJson(`${repo}/contents/tools?ref=${version}`)
     .filter((e) => e.type === 'dir')
     .map((e) => e.name);
@@ -73,7 +63,7 @@ async function release() {
   const { entries, digest, previousVersion, before } = await publishRelease(new Registry(values.image), version, { tools, catalogs });
   console.log(`pushed ${values.image}:${version}-tools@${digest}: ${entries.length} tool layers (previous release: ${previousVersion ?? 'none'})`);
   const notes = releaseNotes({ version, previousVersion, repository: values.repository, before, after: entries });
-  ghApi(JSON.stringify({ body: releaseBody(existing.body, notes) }), '--method', 'PATCH', `${repo}/releases/${existing.id}`, '--input', '-');
+  ghJson(`${repo}/releases/${existing.id}`, { method: 'PATCH', body: { body: releaseBody(existing.body, notes) } });
   await mkdir(values.out, { recursive: true });
   const asset = join(values.out, 'tools.json');
   await writeFile(asset, `${JSON.stringify(toolsJson({ version, image: values.image, entries }), null, 2)}\n`);

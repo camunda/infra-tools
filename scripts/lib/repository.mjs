@@ -3,7 +3,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FIX_PR_LABEL } from './fix-pr.mjs';
 import { parseToolDefinition } from './tool-definition.mjs';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -12,11 +11,26 @@ export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 // response body; an error status throws, with gh's message (e.g. "(HTTP 404)") in its stderr.
 export const ghApi = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
 
-// Every fix PR of a repository (owner/name), open or not, as lib/fix-pr.mjs takes them ({ number, state, body, headRefName }),
-// with gh and its token. An API error throws: fix PRs that cannot be read must not read as none.
-export function readFixPrs(repository) {
-  const json = execFileSync('gh', ['pr', 'list', '--repo', repository, '--label', FIX_PR_LABEL, '--state', 'all', '--limit', '1000', '--json', 'number,state,body,headRefName'], { encoding: 'utf8' });
-  return JSON.parse(json);
+// gh api on a path (e.g. repos/<owner>/<name>/releases), returning the parsed response (null when empty). method: GET by
+// default; body: the request body, sent as JSON; accept: the Accept header (e.g. application/vnd.github.raw+json for the
+// content of a file). A GET of a missing resource (404) returns null; any other error throws, as ghApi.
+export function ghJson(path, { method = 'GET', body, accept } = {}) {
+  const args = ['--method', method, ...(accept ? ['-H', `Accept: ${accept}`] : []), path, ...(body ? ['--input', '-'] : [])];
+  try {
+    return JSON.parse(ghApi(body ? JSON.stringify(body) : '', ...args) || 'null');
+  } catch (err) {
+    if (method === 'GET' && /\(HTTP 404\)/.test(err.stderr)) return null;
+    throw err;
+  }
+}
+
+// Every pull request of a repository (owner/name) with a label, open or not: { number, state ('OPEN', 'CLOSED' or 'MERGED'),
+// body }, as lib/fix-pr.mjs takes the fix PRs. An API error throws: pull requests that cannot be read must not read as none.
+export function readPullRequests(repository, label) {
+  const issues = JSON.parse(ghApi('', '--paginate', '--slurp', `repos/${repository}/issues?labels=${encodeURIComponent(label)}&state=all&per_page=100`)).flat();
+  return issues
+    .filter((issue) => issue.pull_request)
+    .map((pr) => ({ number: pr.number, state: pr.state === 'open' ? 'OPEN' : pr.pull_request.merged_at ? 'MERGED' : 'CLOSED', body: pr.body }));
 }
 
 export async function readToolDefinition(name) {
