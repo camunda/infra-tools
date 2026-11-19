@@ -28,7 +28,7 @@ A version that fails to build or test gets a fix PR (label `tool-build`), opened
 
 ## Releases
 
-Record commits and action changes keep a release-please release PR open ([Release](.github/workflows/release.yml), config in `.github/config/`). The [Release merge](.github/workflows/release-merge.yml) workflow merges it every day once its CI is green, and alerts `#infra-alerts` when it stays open for 2 days. The merge creates release `X.Y.Z`, which the Release workflow then publishes: the `X.Y.Z-tools` index pushed to `ghcr.io/camunda/infra-tools` (the previous release's index, plus the catalog, minus retired versions), the Added / Replaced / Retired tables added to the release notes, and `tools.json` attached. The action installs from the index of the release it is pinned to; the action tests use the latest release's.
+Record commits and action changes keep a release-please release PR open ([Release](.github/workflows/release.yml), config in `.github/config/`). The [Release merge](.github/workflows/release-merge.yml) workflow merges it every day once its CI is green, and alerts `#infra-alerts` when it stays open for 2 days, or when the merge only enabled auto-merge. The merge creates release `X.Y.Z`, which the Release workflow then publishes: the `X.Y.Z-tools` index pushed to `ghcr.io/camunda/infra-tools` (the previous release's index, plus the catalog, minus retired versions), the Added / Replaced / Retired tables added to the release notes, and `tools.json` attached. The action installs from the index of the release it is pinned to; the action tests use the latest release's.
 
 ### Publish a tool version by hand
 

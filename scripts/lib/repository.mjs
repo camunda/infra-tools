@@ -25,12 +25,19 @@ export function ghJson(path, { method = 'GET', body, accept } = {}) {
 }
 
 // Every pull request of a repository (owner/name) with a label, open or not: { number, state ('OPEN', 'CLOSED' or 'MERGED'),
-// body }, as lib/fix-pr.mjs takes the fix PRs. An API error throws: pull requests that cannot be read must not read as none.
+// body, labels (names), createdAt }, as lib/fix-pr.mjs takes the fix PRs. An API error throws: pull requests that cannot be
+// read must not read as none.
 export function readPullRequests(repository, label) {
   const issues = JSON.parse(ghApi('', '--paginate', '--slurp', `repos/${repository}/issues?labels=${encodeURIComponent(label)}&state=all&per_page=100`)).flat();
   return issues
     .filter((issue) => issue.pull_request)
-    .map((pr) => ({ number: pr.number, state: pr.state === 'open' ? 'OPEN' : pr.pull_request.merged_at ? 'MERGED' : 'CLOSED', body: pr.body }));
+    .map((pr) => ({
+      number: pr.number,
+      state: pr.state === 'open' ? 'OPEN' : pr.pull_request.merged_at ? 'MERGED' : 'CLOSED',
+      body: pr.body,
+      labels: pr.labels.map((l) => l.name),
+      createdAt: pr.created_at,
+    }));
 }
 
 export async function readToolDefinition(name) {
