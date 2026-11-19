@@ -22,6 +22,10 @@ See what the next run would publish (reads upstream and the registry, with a tok
 GITHUB_TOKEN="$(gh auth token)" node scripts/plan.mjs --image ghcr.io/camunda/infra-tools
 ```
 
+## Releases
+
+Record commits and action changes keep a release-please release PR open ([Release](.github/workflows/release.yml), config in `.github/config/`). The [Release merge](.github/workflows/release-merge.yml) workflow merges it every day once its CI is green, and alerts `#infra-alerts` when it stays open for 2 days. The merge creates release `X.Y.Z`, which the Release workflow then publishes: the `X.Y.Z-tools` index pushed to `ghcr.io/camunda/infra-tools` (the previous release's index, plus the catalog, minus retired versions), the Added / Replaced / Retired tables added to the release notes, and `tools.json` attached. The action installs from the index of the release it is pinned to; the action tests use the latest release's.
+
 ### Publish a tool version by hand
 
 Until the first release, the action tests read a test index filled by hand. The [Publish tool](.github/workflows/publish-tool.yml) workflow builds, tests and pushes the tool image of one version that its tool definition publishes and that the reconciler has not published yet, then adds it to an index (`ghcr.io/camunda/infra-tools:tracer-tools` by default):
