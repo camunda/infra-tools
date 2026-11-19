@@ -30,7 +30,7 @@ Phases, in order (from the proposal's plan):
 
 Out of scope:
 
-- Satellite actions in `camunda/infra-global-github-actions` (e.g. `submit-test-status`), kept unchanged.
+- Satellite actions in `camunda/infra-global-github-actions` (e.g. `submit-test-status`), kept unchanged, except `submit-build-status` loading install figures (D59, ADR 0010).
 - Dev runners for `camunda/camunda`.
 - Caches that are not tools (Maven repository, npm/yarn caches).
 
@@ -218,6 +218,7 @@ Releases (release-please, D25):
 - Implementation: `scripts/action/setup.sh` (bash, curl, jq). The release version is read from the release-please manifest at the pinned commit; there is no `version` input.
 - Inputs: `tools` and `tool-cache` (selectors, one per line), `token`, `mode` (`extract`, `validate`), `index` (override, for tests and mirrors), `summary` (`true`: table of the selected tools in the job summary).
 - Log: the release and platform, one line per tool (selector, resolved version, `installed` with size, duration, speed and registry, or `cached`, and the tool cache path) and a total; login and index timings in a collapsed group; layer digests as debug messages. Output: `versions`, JSON of the resolved version per selected tool in the form `setup-*` actions expect (`{"java":"21.0.12+101.0.LTS"}`, read with `fromJSON(steps.<id>.outputs.versions).java`); `{}` when nothing is installed (D43).
+- Install figures (D59, ADR 0010): one JSON line per selected tool appended to `$RUNNER_TEMP/ci-analytics/tool-installs.jsonl` as soon as its outcome is known, with `tool`, `selector`, `version`, `outcome` (`present`, `installed`, `failed`), `error` for a failure (`login`, `index`, `pull`, `extract`), `size_bytes`, `duration_ms` and `registry` (the host the layer came from) for an install, `release` (the index tag) and `platform`. No repository or runner set: the build status row already holds them.
 - Tool layouts (cache folder, arch folders, `addToPath`) come from `tools/*/tool.json` at the pinned commit, so present tools need no network.
 - Flow:
   1. For each selector, look for a complete matching version in `$RUNNER_TOOL_CACHE`; if every tool is present, stop (R4, R5).
@@ -290,7 +291,7 @@ Workflows follow the infra team's reference repository, [`camunda/infra-services
 | D11 | Majors through a `current` line plus a fork workflow. | One manual PR per major | Renovate cannot add a version line on its own. | superseded by D21 |
 | D12 | PoC published from the `1138-*` branch of `infra-actions-runner` by a manual tag, to GHCR only. | Releases from `main`; GAR | PoC only; no impact on `main`. | superseded by D26 |
 | D13 | Self-hosted runner image out of scope. | Assemble it from the tool images | Focus on the action and the index first. | decided |
-| D14 | Satellite actions of `infra-global-github-actions` unchanged in the PoC. | Route gcloud versions through them | Keeps the PoC small. | decided |
+| D14 | Satellite actions of `infra-global-github-actions` unchanged in the PoC. | Route gcloud versions through them | Keeps the PoC small. | superseded by D59 |
 | D15 | `camunda/camunda` calls the action centrally in `setup-build` and `build-frontend`; single-job tools per job; redundant setup steps removed. | Per job only | Covers most jobs with two call sites. | decided |
 | D16 | Measure with one PoC branch compared against BigQuery history. | Paired baseline and toolset branches | Enough for a first signal. | decided |
 | D17 | No dev runners for `camunda/camunda`. | Dev runner group with the toolset image | The action must work on today's runners. | decided |
@@ -335,6 +336,7 @@ Workflows follow the infra team's reference repository, [`camunda/infra-services
 | D56 | release-please uses the `infra-releases` GitHub App (Vault `secret/data/products/infra/ci/infra-releases`), like other infra repositories; Infra - Misc keeps record commits, fix PRs and merging the release PR as bypass actor. | Infra - Misc for release-please too | Same release setup as the other infra repositories. | decided |
 | D57 | CI follows `camunda/infra-services-demo` (§5.8), with all zizmor audits enabled, shellcheck added for the bash action, `persist-credentials: false` on checkouts that don't push, and no harden-runner. Release tags stay `X.Y.Z` (D30). | Start from blank workflows; copy the demo as-is (only the pinning audit, no shellcheck) | One set of conventions across infra repositories; a new repository has no findings to triage, so it can start strict. | decided |
 | D58 | One tool image per tool version for every Ubuntu release: built once (builder on a single release), and its test stage run on every Ubuntu release our runners use (`UBUNTU_RELEASES` in Bake, e.g. `24.04,26.04`); a release is added when runners offer it and dropped when no runner set uses it. A tool whose upstream ships one build per Ubuntu release (e.g. Python from `actions/python-versions`) opts in to one image per release in its tool definition at its tool onboarding, with the release in the OCI platform (`os.version`) of the tool image and index, and the action picking the entry for the runner's `VERSION_ID`. | Test on the runners' current release only, retesting published versions when runners move; one image per Ubuntu release for every tool | Tool images never change and stay in the index for months, so each one is verified on every release it will run on; runner sets (GitHub-hosted, self-hosted) move between releases at different times; most tools are release-independent upstream binaries, and per-release images would multiply builds, tags, index entries and fix PRs, and add a runner check to the action, for identical content. | decided |
+| D59 | Install figures go to CI Analytics through a file: the action appends JSON lines to `$RUNNER_TEMP/ci-analytics/tool-installs.jsonl`, and `submit-build-status` loads them into a NULLABLE `tool_installs` `JSON` column of `build_status_v2`, resending the row without it on `insertErrors` (ADR 0010). Delivered in order: the column and `camunda/infra-tools` in the WIF allowlist (`infra-core`), the loader (`infra-global-github-actions`), then the file; our e2e workflow runs `start-build-monitor` and `submit-build-status` as the test producer. | The action sends to BigQuery itself; a new `tool_install_v1` table; a typed `REPEATED RECORD` column | No credentials or network call in the action; one write per job; fields evolve without schema changes, and a bad file never drops the build status row. | decided |
 
 ## 8. Open questions
 
