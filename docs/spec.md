@@ -169,15 +169,15 @@ A run whose tool definitions no longer match `main`'s tip publishes nothing: the
    - List upstream versions per platform; keep versions available for every platform (others wait; fix PR after N days).
    - Apply each version's line (D41): `from` (inclusive), `versions`, `ignoredVersions`, `revisions`, `retired`, stability, `minAge`.
    - Deduplicate by exact string only; order with build metadata (D23).
-   - Skip versions with an open fix PR, or a fix PR closed without merge (treated as ignored).
+   - Skip versions with a fix PR closed without merge by a maintainer (treated as ignored); versions with an open fix PR are planned again, so the fix PR learns when the version builds or its error changes.
    - Plan = remaining versions whose tag `<tool>-<version>-r<revision>` is missing (404; any other registry error fails the run).
 2. Build and test each planned version and platform (Bake).
 3. Publish each success: push the tool image, create the tool release (skip if it exists).
 4. Record: plan again on the latest `main`, whose tool definitions are the ones the builds used (the run is not superseded), which also finds earlier pushes never recorded; update its `published/<tool>.json`, one commit per run on top of it with one conventional entry per version (`feat(node): publish 26.11.2`, `fix(java): republish 21.0.12+101.0.LTS (r2)`, `feat(node)!: retire 24.19.0`): the first as subject, the others in `BEGIN_NESTED_COMMIT`/`END_NESTED_COMMIT` blocks, which release-please reads as one commit each.
-5. Fix PRs, per failure:
+5. Fix PRs, per failure (a failed build or test leaves its build job green and hands its failure over; a failed push fails the run):
    - Same tool and major with an open fix PR and the same error: add the version to it; otherwise open `tool-build/<tool>-<version>` (label `tool-build`), starting from an empty commit (the version is already in its line).
    - Body: failing step, log excerpt, run link; comment only when the error changes.
-   - Close the PR (with a comment) when the version builds again; maintainers can split a grouped PR.
+   - Close the PR (with a comment) when none of its versions is left to publish (they build again, or their line no longer publishes them); maintainers can split a grouped PR.
 6. Completeness check (R17): `plan --check` must find nothing left to publish; fail and alert otherwise.
 
 Scripts (`scripts/`): `plan.mjs` (1, 6), `build.mjs` (2, push), `publish.mjs` (tool releases), `record.mjs` (4), `fix-pr.mjs` (5), `superseded.sh` (superseded runs).
