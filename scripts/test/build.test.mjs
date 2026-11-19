@@ -12,6 +12,7 @@ const maven = parseToolDefinition('maven', {
   source: { datasource: 'maven' },
   publish: { lines: { 3.9: { versions: ['3.9.16'], ignoredVersions: ['3.9.15'] }, '*': { from: '3.10.0', retired: ['3.10.1'] } } },
   install: { addToPath: 'bin' },
+  test: { packages: ['openjdk-21-jre-headless', 'libatomic1'] },
 });
 
 test('a build target names the tool image tag and the build arguments of one tool version', () => {
@@ -21,7 +22,14 @@ test('a build target names the tool image tag and the build arguments of one too
     line: '3.9',
     revision: 1,
     tag: 'maven-3.9.16-r1',
-    args: { TOOL: 'maven', VERSION: '3.9.16', FOLDER_VERSION: '3.9.16', CACHE_FOLDER: 'maven', ARCH_FOLDERS: 'amd64=x64 arm64=arm64' },
+    args: {
+      TOOL: 'maven',
+      VERSION: '3.9.16',
+      FOLDER_VERSION: '3.9.16',
+      CACHE_FOLDER: 'maven',
+      ARCH_FOLDERS: 'amd64=x64 arm64=arm64',
+      TEST_PACKAGES: 'openjdk-21-jre-headless libatomic1',
+    },
   });
 });
 
@@ -34,6 +42,7 @@ test('a build target writes build metadata as - and carries the revision of its 
     FOLDER_VERSION: '21.0.12-8',
     CACHE_FOLDER: 'Java_Temurin-Hotspot_jdk',
     ARCH_FOLDERS: 'amd64=x64 arm64=aarch64',
+    TEST_PACKAGES: '',
   });
 });
 

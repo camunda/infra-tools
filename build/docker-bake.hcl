@@ -6,6 +6,7 @@ variable "VERSION" {}
 variable "FOLDER_VERSION" {}
 variable "CACHE_FOLDER" {}
 variable "ARCH_FOLDERS" {}
+variable "TEST_PACKAGES" {}
 variable "LAYOUT" {}
 # The commit the tool image is built from, annotated on its image index: its tool release is tagged there.
 variable "REVISION" {}
@@ -48,7 +49,7 @@ target "test" {
   name       = "test-ubuntu-${replace(ubuntu, ".", "-")}"
   matrix     = { ubuntu = split(",", UBUNTU_RELEASES) }
   inherits   = ["_args"]
-  args       = { UBUNTU = ubuntu }
+  args       = { UBUNTU = ubuntu, TEST_PACKAGES = TEST_PACKAGES }
   context    = "tools/${TOOL}"
   dockerfile = "../../build/test.Dockerfile"
   contexts   = { tool = "oci-layout://${LAYOUT}", build = "build" }

@@ -15,5 +15,8 @@
   },
   "install": {
     "addToPath": "bin"
+  },
+  "test": {
+    "packages": ["openjdk-21-jre-headless"]
   }
 }

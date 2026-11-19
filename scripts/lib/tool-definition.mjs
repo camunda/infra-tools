@@ -1,6 +1,6 @@
 // Tool definitions (tools/<tool>/tool.json, D38): three blocks, source (Renovate lookup, passed as-is), publish (version
 // lines, D41) and install (tool cache layout), plus setup for tool-cache tools (their setup-* action, for the usage snippet of
-// their tool releases, D53). Blocks with only defaults can be left out.
+// their tool releases, D53) and test (the apt packages its test needs). Blocks with only defaults can be left out.
 import { compareVersions, inLine } from './versions.mjs';
 
 const OPTIONS = {
@@ -8,11 +8,13 @@ const OPTIONS = {
   publish: ['minAge', 'lines'],
   install: ['cacheFolder', 'archFolders', 'addToPath'],
   setup: ['action', 'versionInput', 'with'],
+  test: ['packages'],
 };
 
 const DEFAULTS = {
   publish: { minAge: '1 day' },
   install: { archFolders: { amd64: 'x64', arm64: 'arm64' }, addToPath: null },
+  test: { packages: [] },
 };
 
 // Parses and validates a tool definition; throws with the file and option at fault.
@@ -33,6 +35,7 @@ export function parseToolDefinition(name, json) {
     publish: { ...DEFAULTS.publish, ...json.publish },
     install: { cacheFolder: name, ...DEFAULTS.install, ...json.install },
     ...(json.setup && { setup: { with: {}, ...json.setup } }),
+    test: { ...DEFAULTS.test, ...json.test },
   };
   if (!tool.source.datasource) fail('missing source.datasource');
   if (!tool.publish.lines || !Object.keys(tool.publish.lines).length) fail('missing publish.lines');
@@ -47,6 +50,9 @@ export function parseToolDefinition(name, json) {
     const inputs = tool.setup.with;
     if (typeof inputs !== 'object' || inputs === null || Array.isArray(inputs) || Object.values(inputs).some((v) => typeof v !== 'string')) fail('setup.with maps inputs to strings');
   }
+  // Debian package names only: the test stage passes them to apt-get install unquoted.
+  const { packages } = tool.test;
+  if (!Array.isArray(packages) || packages.some((p) => typeof p !== 'string' || !/^[a-z0-9][a-z0-9+.-]+$/.test(p))) fail('test.packages is a list of apt package names');
   validateLines(tool, fail);
   return tool;
 }

@@ -13,6 +13,7 @@ test('a tool definition keeps its three blocks and fills the defaults', () => {
     source: { datasource: 'maven', packageName: 'org.apache.maven:apache-maven', versioning: 'semver' },
     publish: { minAge: '1 day', lines: { 3.9: { from: '3.9.16' } } },
     install: { cacheFolder: 'maven', archFolders: { amd64: 'x64', arm64: 'arm64' }, addToPath: 'bin' },
+    test: { packages: [] },
   });
 });
 
@@ -58,6 +59,16 @@ test('a tool-cache tool names its setup-* action and version input for the usage
   rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', with: null } }, 'tools/jq/tool.json: setup.with maps inputs to strings');
   rejects({ source, publish: { lines }, setup: { action: 'actions/setup-jq', versionInput: 'version', uses: 'x' } }, 'tools/jq/tool.json: unknown option setup.uses');
   rejects({ source, publish: { lines }, install: { addToPath: 'bin' }, setup: { action: 'actions/setup-jq', versionInput: 'version' } }, 'tools/jq/tool.json: setup is for tool-cache tools; a plain tool (install.addToPath) is ready to use');
+});
+
+test('a tool lists the apt packages its test needs on top of the Ubuntu image', () => {
+  const maven = parseToolDefinition('maven', { source: { datasource: 'maven' }, publish: { lines }, install: { addToPath: 'bin' }, test: { packages: ['openjdk-21-jre-headless'] } });
+  assert.deepEqual(maven.test, { packages: ['openjdk-21-jre-headless'] });
+  const source = { datasource: 'github-releases' };
+  rejects({ source, publish: { lines }, test: { packages: 'libatomic1' } }, 'tools/jq/tool.json: test.packages is a list of apt package names');
+  rejects({ source, publish: { lines }, test: { packages: ['libatomic1 curl'] } }, 'tools/jq/tool.json: test.packages is a list of apt package names');
+  rejects({ source, publish: { lines }, test: { packages: ['$(curl x)'] } }, 'tools/jq/tool.json: test.packages is a list of apt package names');
+  rejects({ source, publish: { lines }, test: { script: 'test.sh' } }, 'tools/jq/tool.json: unknown option test.script');
 });
 
 test('version lines are validated (D41)', () => {

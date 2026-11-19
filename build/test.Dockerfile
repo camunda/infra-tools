@@ -1,13 +1,17 @@
 # syntax=docker/dockerfile:1
 # Runs tools/<tool>/test.sh against the tool image on the target platform and on one Ubuntu release runners use (UBUNTU, set
 # by build/docker-bake.hcl), as on a runner; never published.
-# Packages runners have that some tools need: a Java runtime for maven, libatomic for node.
 ARG UBUNTU
 FROM mirror.gcr.io/library/ubuntu:${UBUNTU}
-# hadolint ignore=DL3008
-RUN apt-get update -y \
-  && apt-get install -y --no-install-recommends ca-certificates libatomic1 openjdk-21-jre-headless \
-  && rm -rf /var/lib/apt/lists/*
+# The apt packages the tool's test needs (test.packages of its tool definition, e.g. a Java runtime for maven), as runners have
+# them; none skips apt.
+ARG TEST_PACKAGES
+# hadolint ignore=DL3008,SC2086
+RUN if [ -n "${TEST_PACKAGES}" ]; then \
+    apt-get update -y \
+      && apt-get install -y --no-install-recommends ${TEST_PACKAGES} \
+      && rm -rf /var/lib/apt/lists/*; \
+  fi
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG TARGETARCH
 ARG VERSION
