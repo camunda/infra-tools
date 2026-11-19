@@ -45,4 +45,4 @@ runs:
       TOKEN: ${{ inputs.token }}
       INDEX: ${{ inputs.index }}
       SUMMARY: ${{ inputs.summary }}
-    run: '"${GITHUB_ACTION_PATH}/scripts/action/setup.sh"'
+    run: '"${GITHUB_ACTION_PATH}/action/setup.sh"'
