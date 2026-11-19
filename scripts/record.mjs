@@ -1,7 +1,8 @@
 // Usage: node record.mjs --image <registry>/<repository> [--out <dir>]
 // Reconciler record (spec §5.3, step 4), once the run's builds are pushed: plans every tool again against upstream and the
-// published tags in --image, and records every published version the catalog lacks (lib/reconcile.mjs recordRun). Run on the
-// latest main once superseded.sh found its tool definitions unchanged since the run's commit: those its builds used. Writes
+// published tags in --image, and records every published version the catalog lacks (lib/reconcile.mjs recordRun), failing on
+// one built with another install block (its tool definition at the build commit its tool image carries). Run on the latest
+// main once superseded.sh found its tool definitions unchanged since the run's commit: those its builds used. Writes
 // published/<tool>.json, and in <out> (default build/out/reconcile): unreleased.json, the tool versions that need a tool
 // release (publish.mjs), and commit.txt, the record commit message, empty when nothing changed.
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -9,12 +10,13 @@ import { join } from 'node:path';
 import { commitMessage, recordRun } from './lib/reconcile.mjs';
 import { planEveryTool, reconcilerOptions } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
-import { writeCatalog } from './lib/repository.mjs';
+import { readToolDefinitionAt, writeCatalog } from './lib/repository.mjs';
 
 const values = reconcilerOptions('record.mjs');
 
-const { tools, catalogs, plans } = await planEveryTool(new Registry(values.image));
-const run = recordRun({ tools, catalogs, plans, now: new Date().toISOString() });
+const registry = new Registry(values.image);
+const { tools, catalogs, plans } = await planEveryTool(registry);
+const run = await recordRun({ tools, catalogs, plans, now: new Date().toISOString(), registry, readToolDefinitionAt });
 for (const tool of tools) {
   const entries = run.catalogs[tool.name];
   if (JSON.stringify(entries) !== JSON.stringify(catalogs[tool.name])) await writeCatalog(tool.name, entries);

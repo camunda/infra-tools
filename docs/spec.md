@@ -162,7 +162,7 @@ Lines (D41), per upstream version: find its line (the explicit line it belongs t
 
 Runs on a schedule, on push to `main` and on demand; one run at a time, in a concurrency group shared with every workflow that pushes tool images (`publish-tool.yml` until the first release): the tag of a tool image is checked, then written, so two runs must not push the same one.
 
-A run whose tool definitions no longer match `main`'s tip publishes nothing: the run on the tip does. Each job (plan, every build, record) first compares the run's commit with the tip, `published/` aside, since record commits start no run; when they differ, the run is superseded (a rerun of an older run, or `main` changed during the run), and the job skips its steps, stays green and says so in its summary. A superseded plan plans no builds. Images a superseded run already pushed stay unrecorded until the run on the tip records them, when still within its lines.
+A run whose tool definitions no longer match `main`'s tip publishes nothing: the run on the tip does. Each job (plan, every build, record) first compares the run's commit with the tip, `published/` aside, since record commits start no run; when they differ, the run is superseded (a rerun of an older run, or `main` changed during the run), and the job skips its steps, stays green and says so in its summary. A superseded plan plans no builds. Images a superseded run already pushed stay unrecorded until the run on the tip records them, when still within its lines and built with its `install` block (safeguards below).
 
 1. Plan, per tool:
    - List upstream versions per platform; keep versions available for every platform (others wait; fix PR after N days).
@@ -181,7 +181,7 @@ A run whose tool definitions no longer match `main`'s tip publishes nothing: the
 
 Scripts (`scripts/`): `plan.mjs` (1, 6), `build.mjs` (2, push), `publish.mjs` (tool releases), `record.mjs` (4), `fix-pr.mjs` (5), `superseded.sh` (superseded runs).
 
-Safeguards: never overwrite a tag; fail when a version of the catalog lost its tag; fail when a version in a line's `versions` or `revisions` is not found upstream (a typo or a delisted version); datasource or registry outages fail the run (never read as "no versions"); retention policies exclude `*-r*` tags.
+Safeguards: never overwrite a tag; fail when a version of the catalog lost its tag; fail when a tool image to record was built with another `install` block than its tool definition's (`tool.json` at the image's build commit, fetched by record when missing; an unreadable one fails too): the action installs from the tool cache path the pinned `tool.json` gives, so a revision bump builds it again; fail when a version in a line's `versions` or `revisions` is not found upstream (a typo or a delisted version); datasource or registry outages fail the run (never read as "no versions"); retention policies exclude `*-r*` tags.
 
 ### 5.4 Pull requests
 

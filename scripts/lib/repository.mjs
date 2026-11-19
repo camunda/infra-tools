@@ -15,6 +15,18 @@ export async function readToolDefinition(name) {
   return parseToolDefinition(name, JSON.parse(await readFile(join(ROOT, 'tools', name, 'tool.json'), 'utf8')));
 }
 
+// The tool definition of a tool at a commit, such as the build commit of a tool image, fetched at depth 1 when the checkout
+// lacks it (the record job checks out main's tip only). Throws when it cannot be read.
+export async function readToolDefinitionAt(name, commit) {
+  const git = (args, options) => execFileSync('git', args, { cwd: ROOT, encoding: 'utf8', ...options });
+  try {
+    git(['cat-file', '-e', `${commit}^{commit}`], { stdio: 'ignore' });
+  } catch {
+    git(['fetch', '--no-tags', '--depth=1', 'origin', commit]);
+  }
+  return parseToolDefinition(name, JSON.parse(git(['show', `${commit}:tools/${name}/tool.json`])));
+}
+
 // Every tool of tools/, by folder name.
 export async function readToolNames() {
   return (await readdir(join(ROOT, 'tools'), { withFileTypes: true })).filter((e) => e.isDirectory()).map((e) => e.name).sort();
