@@ -156,8 +156,9 @@ jobs:
           echo "## ${TOOL} ${VERSION}: failed"
           echo
           echo "A failed build or test is tracked in a fix PR and leaves this job green: this failure is another one, such as a push to ghcr.io."
-          echo "Inspect the failed step in the job logs. A registry error is usually transient: a scheduled or push run reruns its failed jobs"
-          echo "up to attempt 3, then alerts #infra-alerts, and the next run plans the version again."
+          echo "Inspect the failed step in the job logs."
+          echo "A registry error is usually transient: a scheduled or push run reruns its failed jobs up to attempt 3, then alerts #infra-alerts."
+          echo "The next run plans the version again."
         } >>"${GITHUB_STEP_SUMMARY}"
 
   record:
@@ -334,8 +335,8 @@ jobs:
           echo
           echo "Inspect the failed step in the job logs."
           echo "- **Open, update and close the fix PRs**: a GitHub API error is usually transient; the failures of the next run open the fix PRs again."
-          echo "- **Check that every version in range is published or tracked**: the versions it lists are neither published nor in a fix PR,"
-          echo "  usually because their build job failed or was cancelled before handing its failure over (see the build jobs of this run)."
+          echo "- **Check that every version in range is published or tracked**: the versions it lists are neither published nor in a fix PR."
+          echo "  Their build job usually failed or was cancelled before handing its failure over (see the build jobs of this run)."
           echo "  The next run plans them again."
         } >>"${GITHUB_STEP_SUMMARY}"
 
@@ -374,8 +375,9 @@ jobs:
     - record
     - fix-prs
     - rerun-failed-jobs
-    if: >-
-      failure() && github.event_name != 'workflow_dispatch' && (fromJSON(github.run_attempt) >= 3 || needs.rerun-failed-jobs.result == 'failure')
+    if: |-
+      always() && github.event_name != 'workflow_dispatch' && contains(needs.*.result, 'failure') &&
+      (fromJSON(github.run_attempt) >= 3 || needs.rerun-failed-jobs.result == 'failure')
     permissions:
       id-token: write # Vault OIDC/JWT auth
     runs-on: ubuntu-latest
