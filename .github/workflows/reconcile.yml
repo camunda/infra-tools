@@ -38,14 +38,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
-      builds: ${{ steps.plan.outputs.builds }}
+      # A superseded run plans no builds.
+      builds: ${{ steps.plan.outputs.builds || '[]' }}
     steps:
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
 
+    # A rerun of an older run keeps its commit, so its tool definitions: it must not publish versions main dropped (spec §5.3).
+    - name: Check the run is not superseded
+      id: guard
+      run: scripts/superseded.sh
+
     - name: Set up Node.js
+      if: steps.guard.outputs.superseded == 'false'
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version-file: .tool-versions
@@ -53,11 +60,13 @@ jobs:
         cache-dependency-path: scripts/package-lock.json
 
     - name: Install dependencies
+      if: steps.guard.outputs.superseded == 'false'
       run: make install
 
     # Fails on an upstream or registry outage, and when a catalog version lost its tag.
     - name: Plan the tool versions to publish
       id: plan
+      if: steps.guard.outputs.superseded == 'false'
       env:
         GITHUB_TOKEN: ${{ github.token }}
       run: |
@@ -84,7 +93,13 @@ jobs:
       with:
         persist-credentials: false
 
+    # Again in each build: main may have moved since the plan, and a rerun of failed jobs skips the plan.
+    - name: Check the run is not superseded
+      id: guard
+      run: scripts/superseded.sh
+
     - name: Set up Node.js
+      if: steps.guard.outputs.superseded == 'false'
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version-file: .tool-versions
@@ -92,16 +107,20 @@ jobs:
         cache-dependency-path: scripts/package-lock.json
 
     - name: Install dependencies
+      if: steps.guard.outputs.superseded == 'false'
       run: make install
 
     - name: Set up QEMU
+      if: steps.guard.outputs.superseded == 'false'
       uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
     - name: Set up Docker Buildx
+      if: steps.guard.outputs.superseded == 'false'
       uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
     # Never over an existing tag: published tool images never change.
     - name: Build, test and push the tool image
+      if: steps.guard.outputs.superseded == 'false'
       env:
         GITHUB_TOKEN: ${{ github.token }}
         TOOL: ${{ matrix.tool }}
@@ -144,14 +163,14 @@ jobs:
         token: ${{ steps.app-token.outputs.token }}
         persist-credentials: true # push the record commit as the Infra - Misc App
 
-    # What was pushed is recorded with the tool definitions the builds used: a line, revision or install change merged to main
-    # since the run started must not change what the catalog says of its tool images. Only published/ is committed.
-    - name: Restore the tool definitions of the run's commit
-      run: |
-        git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
-        git restore --source "${GITHUB_SHA}" -- tools
+    # What was pushed is recorded with the tool definitions the builds used, the tip's once this passes: a line, revision or
+    # install change merged to main since the run started supersedes it, and the run on the tip records instead.
+    - name: Check the run is not superseded
+      id: guard
+      run: scripts/superseded.sh
 
     - name: Set up Node.js
+      if: steps.guard.outputs.superseded == 'false'
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version-file: .tool-versions
@@ -159,15 +178,18 @@ jobs:
         cache-dependency-path: scripts/package-lock.json
 
     - name: Install dependencies
+      if: steps.guard.outputs.superseded == 'false'
       run: make install
 
     - name: Record the published tool versions
+      if: steps.guard.outputs.superseded == 'false'
       env:
         GITHUB_TOKEN: ${{ github.token }}
       run: node scripts/record.mjs --image "${IMAGE}" --out "${OUT}"
 
     # Before the record commit: a run that fails here records the same versions next time.
     - name: Create the tool releases
+      if: steps.guard.outputs.superseded == 'false'
       env:
         GITHUB_TOKEN: ${{ github.token }}
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -175,6 +197,7 @@ jobs:
       run: node scripts/publish.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --out "${OUT}"
 
     - name: Push the record commit to main
+      if: steps.guard.outputs.superseded == 'false'
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
         APP_SLUG: ${{ steps.app-token.outputs.app-slug }}

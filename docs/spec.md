@@ -92,6 +92,7 @@ infra-tools/
 │   └── test.Dockerfile           # runs test.sh on the target platform
 ├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index, pull-request, stuck-prs (+ lib/, test/)
 │   ├── package.json              # renovate (getPkgReleases)
+│   ├── superseded.sh             # superseded-run guard of the reconciler
 │   └── action/setup.sh           # implementation of the action
 ├── published/                    # bot-written record of published versions
 └── .github/
@@ -161,6 +162,8 @@ Lines (D41), per upstream version: find its line (the explicit line it belongs t
 
 Runs on a schedule, on push to `main` and on demand; one run at a time, in a concurrency group shared with every workflow that pushes tool images (`publish-tool.yml` until the first release): the tag of a tool image is checked, then written, so two runs must not push the same one.
 
+A run whose tool definitions no longer match `main`'s tip publishes nothing: the run on the tip does. Each job (plan, every build, record) first compares the run's commit with the tip, `published/` aside, since record commits start no run; when they differ, the run is superseded (a rerun of an older run, or `main` changed during the run), and the job skips its steps, stays green and says so in its summary. A superseded plan plans no builds. Images a superseded run already pushed stay unrecorded until the run on the tip records them, when still within its lines.
+
 1. Plan, per tool:
    - List upstream versions per platform; keep versions available for every platform (others wait; fix PR after N days).
    - Apply each version's line (D41): `from` (inclusive), `versions`, `ignoredVersions`, `revisions`, `retired`, stability, `minAge`.
@@ -169,14 +172,14 @@ Runs on a schedule, on push to `main` and on demand; one run at a time, in a con
    - Plan = remaining versions whose tag `<tool>-<version>-r<revision>` is missing (404; any other registry error fails the run).
 2. Build and test each planned version and platform (Bake).
 3. Publish each success: push the tool image, create the tool release (skip if it exists).
-4. Record: plan again with the tool definitions the builds used (the run's commit), which also finds earlier pushes never recorded; update `published/<tool>.json` of the latest `main`, one commit per run on top of it with one conventional entry per version (`feat(node): publish 26.11.2`, `fix(java): republish 21.0.12+101.0.LTS (r2)`, `feat(node)!: retire 24.19.0`): the first as subject, the others in `BEGIN_NESTED_COMMIT`/`END_NESTED_COMMIT` blocks, which release-please reads as one commit each.
+4. Record: plan again on the latest `main`, whose tool definitions are the ones the builds used (the run is not superseded), which also finds earlier pushes never recorded; update its `published/<tool>.json`, one commit per run on top of it with one conventional entry per version (`feat(node): publish 26.11.2`, `fix(java): republish 21.0.12+101.0.LTS (r2)`, `feat(node)!: retire 24.19.0`): the first as subject, the others in `BEGIN_NESTED_COMMIT`/`END_NESTED_COMMIT` blocks, which release-please reads as one commit each.
 5. Fix PRs, per failure:
    - Same tool and major with an open fix PR and the same error: add the version to it; otherwise open `tool-build/<tool>-<version>` (label `tool-build`), starting from an empty commit (the version is already in its line).
    - Body: failing step, log excerpt, run link; comment only when the error changes.
    - Close the PR (with a comment) when the version builds again; maintainers can split a grouped PR.
 6. Completeness check (R17): `plan --check` must find nothing left to publish; fail and alert otherwise.
 
-Scripts (`scripts/`): `plan.mjs` (1, 6), `build.mjs` (2, push), `publish.mjs` (tool releases), `record.mjs` (4), `fix-pr.mjs` (5).
+Scripts (`scripts/`): `plan.mjs` (1, 6), `build.mjs` (2, push), `publish.mjs` (tool releases), `record.mjs` (4), `fix-pr.mjs` (5), `superseded.sh` (superseded runs).
 
 Safeguards: never overwrite a tag; fail when a version of the catalog lost its tag; fail when a version in a line's `versions` or `revisions` is not found upstream (a typo or a delisted version); datasource or registry outages fail the run (never read as "no versions"); retention policies exclude `*-r*` tags.
 
