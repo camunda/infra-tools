@@ -14,11 +14,38 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  # Test index, filled by the Publish tool workflow until the first release.
-  INDEX: ghcr.io/camunda/infra-tools:tracer-tools
-
 jobs:
+  # The index the action tests install from: the latest release's, read at the base, as a release PR already holds the next
+  # version, whose index exists only once it is merged and published. Before the first release, the test index the Publish
+  # tool workflow fills.
+  index:
+    name: Find the latest release
+    permissions:
+      contents: read # read the release-please manifest at the base
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      index: ${{ steps.index.outputs.index }}
+    steps:
+    - name: Find the index of the latest release
+      id: index
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+        BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        IMAGE: ghcr.io/camunda/infra-tools
+      run: |
+        manifest=.github/config/.release-please-manifest.json
+        if ! json="$(gh api -H 'Accept: application/vnd.github.raw+json' "repos/${REPOSITORY}/contents/${manifest}?ref=${BASE}" 2>"${RUNNER_TEMP}/error")"; then
+          grep -qF '(HTTP 404)' "${RUNNER_TEMP}/error" || { cat "${RUNNER_TEMP}/error"; exit 1; }
+          json='{}'
+        fi
+        # release-please's initial 0.0.0 is no release.
+        release="$(jq -r '."." // empty' <<<"${json}")"
+        if [[ -n "${release}" && "${release}" != 0.0.0 ]]; then index="${IMAGE}:${release}-tools"; else index="${IMAGE}:tracer-tools"; fi
+        echo "Action tests install from ${index}"
+        echo "index=${index}" >>"${GITHUB_OUTPUT}"
+
   test:
     name: Test scripts
     permissions:
@@ -132,6 +159,7 @@ jobs:
 
   action-linux:
     name: Test action (${{ matrix.runner }})
+    needs: index
     permissions:
       contents: read
       packages: read # pull the index and the tool images
@@ -153,7 +181,7 @@ jobs:
       uses: ./
       with:
         tools: maven@3
-        index: ${{ env.INDEX }}
+        index: ${{ needs.index.outputs.index }}
         summary: true
 
     - name: Check maven is installed and on PATH
@@ -180,7 +208,7 @@ jobs:
       uses: ./
       with:
         tools: maven@99
-        index: ${{ env.INDEX }}
+        index: ${{ needs.index.outputs.index }}
 
     - name: Check a present tool needs no network and an unknown version fails
       env:
@@ -193,6 +221,7 @@ jobs:
 
   action-validate:
     name: Test action (validate mode)
+    needs: index
     permissions:
       contents: read
       packages: read # pull the index
@@ -218,7 +247,7 @@ jobs:
       uses: ./infra-tools
       with:
         mode: validate
-        index: ${{ env.INDEX }}
+        index: ${{ needs.index.outputs.index }}
 
     - name: Check validate installs nothing and leaves PATH unchanged
       env:
@@ -237,7 +266,7 @@ jobs:
       uses: ./infra-tools
       with:
         mode: validate
-        index: ${{ env.INDEX }}
+        index: ${{ needs.index.outputs.index }}
 
     - name: Check invalid selectors fail
       env:
@@ -246,6 +275,7 @@ jobs:
 
   action-tool-cache:
     name: Test action tool cache (${{ matrix.runner }})
+    needs: index
     permissions:
       contents: read
       packages: read # pull the index and the tool images
@@ -272,7 +302,7 @@ jobs:
         tool-cache: |
           java@21
           node@26
-        index: ${{ env.INDEX }}
+        index: ${{ needs.index.outputs.index }}
 
     # A marker in each installed folder shows the setup-* actions below use it: a download would replace the folder.
     # A lower build of the same Java version next to it checks which build setup-java picks when several are present.
@@ -335,6 +365,7 @@ jobs:
 
   action-macos:
     name: Test action (macos-latest)
+    needs: index
     permissions:
       contents: read
     runs-on: macos-latest
@@ -350,7 +381,7 @@ jobs:
       uses: ./
       with:
         tools: maven@3
-        index: ${{ env.INDEX }}
+        index: ${{ needs.index.outputs.index }}
 
     - name: Check nothing is installed
       env:
@@ -362,6 +393,7 @@ jobs:
     if: always()
     permissions: {}
     needs:
+    - index
     - test
     - pr-plan
     - pr-dry-run
