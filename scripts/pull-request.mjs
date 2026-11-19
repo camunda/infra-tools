@@ -6,16 +6,18 @@
 // - builds.json: the tool versions to build and test in dry run (scripts/build.mjs without --push);
 // - comment.md: the PR comment, with the revision warnings and the release notes preview; not written when no tool changed.
 // Prints each warning as a workflow warning annotation. With --comment, also brings the release notes preview comment of that
-// PR up to date (lib/pull-request.mjs previewCommentUpdate), with gh and its token (GH_TOKEN or GITHUB_TOKEN).
+// PR up to date (lib/pull-request.mjs previewCommentUpdate). Plans with the fix PRs of --repository, as the reconciler does.
+// Uses gh and its token (GH_TOKEN or GITHUB_TOKEN).
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { FIX_PR_LABEL, trackedVersions } from './lib/fix-pr.mjs';
 import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
 import { releasedVersion } from './lib/release.mjs';
 import { Registry, tagExists } from './lib/registry.mjs';
-import { ghApi, ghJson, readCatalog, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
+import { ghApi, ghJson, readCatalog, readPullRequests, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const { values } = parseArgs({
@@ -68,6 +70,7 @@ const { builds, warnings, notes } = await checkPullRequest({
   previousRelease: { index: previousVersion ? await readIndex(registry, previousTag) : [], version: previousVersion },
   toolImageLayers: (tag) => registry.toolImageLayers(tag),
   repository: values.repository,
+  fixPrs: trackedVersions(readPullRequests(values.repository, FIX_PR_LABEL)),
 });
 
 await mkdir(values.out, { recursive: true });
