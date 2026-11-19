@@ -17,6 +17,14 @@ export function latestIndexTag(manifest) {
   return version ? `${version}-tools` : 'tracer-tools';
 }
 
+// The releases (X.Y.Z, not tool releases nor drafts) still to publish, oldest first: those without tools.json, which their
+// publication attaches last. releases: GitHub releases ({ tag_name, draft, assets: [{ name }] }).
+export function unpublishedReleases(releases) {
+  return releases
+    .filter((r) => /^\d+\.\d+\.\d+$/.test(r.tag_name) && !r.draft && !r.assets.some((a) => a.name === 'tools.json'))
+    .sort((a, b) => compareVersions(a.tag_name, b.tag_name));
+}
+
 // The release before `version`: the highest X.Y.Z below it among the index tags (X.Y.Z-tools) of the registry, none before the
 // first release.
 export function previousRelease(tags, version) {
