@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
@@ -72,6 +72,8 @@ before(async () => {
     }
   }
   registry.addIndex('test-tools', entries);
+  // The index of release 1.2.3, the default of an action whose release-please manifest holds it.
+  registry.addIndex('1.2.3-tools', entries);
   // An index whose maven 3.9.16 is on linux/amd64 only.
   registry.addIndex('amd64-only-tools', entries.filter((e) => !(e.version === '3.9.16' && e.platform === 'linux/arm64')));
 });
@@ -324,6 +326,39 @@ test('an unreachable registry fails with a clear message', async () => {
   const result = await action({ tools: 'maven@3', env: { INDEX: '127.0.0.1:1/camunda/infra-tools:none' } });
   assert.notEqual(result.status, 0);
   assert.match(result.log, /::error::infra-tools: cannot reach 127\.0\.0\.1:1/);
+});
+
+// A copy of the action, with the tool definitions of tools/ and the given release-please manifest (none: no manifest).
+async function actionWithManifest(manifest) {
+  const action = join(runner, 'action');
+  await mkdir(join(action, 'scripts/action'), { recursive: true });
+  await writeFile(join(action, 'scripts/action/setup.sh'), await readFile(SETUP));
+  await cp(fileURLToPath(new URL('../../tools', import.meta.url)), join(action, 'tools'), { recursive: true });
+  if (manifest) {
+    await mkdir(join(action, '.github/config'), { recursive: true });
+    await writeFile(join(action, '.github/config/.release-please-manifest.json'), manifest);
+  }
+  return join(action, 'scripts/action/setup.sh');
+}
+
+// ghcr.io is reached through the fake registry as an http proxy: no network.
+test('without the index input, the action installs from the index of the release of its release-please manifest', async () => {
+  const setup = await actionWithManifest('{\n  ".": "1.2.3"\n}\n');
+  const result = await action({ tools: 'maven@3.9', setup, env: { INDEX: '', http_proxy: `http://${registry.host}` } });
+  assert.equal(result.status, 0, result.log);
+  assert.ok(registry.requests.includes('GET http://ghcr.io/v2/camunda/infra-tools/manifests/1.2.3-tools'), registry.requests.join('\n'));
+  assert.match(result.log, /^infra-tools: ghcr\.io\/camunda\/infra-tools:1\.2\.3-tools \(linux\/amd64\)$/m);
+  assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
+});
+
+test('before the first release, the action without the index input fails and asks for one', async () => {
+  for (const manifest of ['{\n  ".": "0.0.0"\n}\n', undefined]) {
+    const setup = await actionWithManifest(manifest);
+    const result = await action({ tools: 'maven@3.9', setup, env: { INDEX: '' } });
+    assert.notEqual(result.status, 0);
+    assert.match(result.log, /::error::infra-tools: no release yet: set the index input/);
+    await rm(join(runner, 'action'), { recursive: true });
+  }
 });
 
 test('a missing tool cache folder is created', async () => {

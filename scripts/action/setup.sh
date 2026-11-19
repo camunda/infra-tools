@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # The action (action.yml): installs the selected tools from the index into the tool cache, and puts plain tools on PATH.
 # Inputs come from the environment: TOOLS (plain tool selectors), TOOL_CACHE_TOOLS (tool-cache tool selectors), MODE
-# (`extract` or `validate`), TOKEN (registry token), INDEX (<registry>/<repository>:<tag>) and SUMMARY (`true`: table of the
-# selected tools in the job summary).
+# (`extract` or `validate`), TOKEN (registry token), INDEX (<registry>/<repository>:<tag>; empty: the release's index) and
+# SUMMARY (`true`: table of the selected tools in the job summary).
 # Requires bash 5, curl, jq, tar and sha256sum on Linux; yq for MODE=validate.
 set -euo pipefail
 
@@ -35,6 +35,15 @@ ARM64) arch=arm64 ;;
 esac
 tool_cache="${RUNNER_TOOL_CACHE:?}"
 tmp="${RUNNER_TEMP:?}"
+
+# Without the index input, the index of the release at the pinned commit: the version of its release-please manifest, whose
+# initial 0.0.0 is no release.
+if [[ -z "${INDEX:-}" ]]; then
+  release="$(jq -r '."." // empty' "${root}/.github/config/.release-please-manifest.json" 2>/dev/null || true)"
+  if [[ -n "${release}" && "${release}" != 0.0.0 ]]; then
+    INDEX="ghcr.io/camunda/infra-tools:${release}-tools"
+  fi
+fi
 
 # Highest version among the arguments that matches a selector's version prefix: equal, or followed by `.`, `+` or `-`
 # (`+` is written `-` in tool cache folders). Ordered by every number, build metadata included (D23).
@@ -76,7 +85,7 @@ registry="" api="" auth=() layers=""
 
 # Logs in to the index's registry and reads the layers of a platform's manifest (amd64 or arm64, this runner's by default).
 connect() {
-  [[ -n "${INDEX:-}" ]] || fail "no index to install from: set the index input"
+  [[ -n "${INDEX:-}" ]] || fail "no release yet: set the index input"
   registry="${INDEX%%/*}"
   local platform="${1:-${arch}}" repository="${INDEX#*/}" challenge realm service bearer digest
   local name="${repository%:*}"
