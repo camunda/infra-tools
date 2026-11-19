@@ -3,25 +3,17 @@ name: Release merge
 
 # Daily release (spec §5.5, D25, D56): enables GitHub auto-merge on the open release PR of release-please as the Infra -
 # Releases App, no bypass actor of the main ruleset: GitHub merges it once its required checks pass (the "Allow auto-merge"
-# repository setting must be on), and release.yml then creates and publishes the release. Alerts #infra-alerts when a release
-# PR stays open for 2 days or more.
+# repository setting must be on), and release.yml then creates and publishes the release.
 on:
   schedule:
   - cron: '0 5 * * *' # every day at 05:00 UTC
   workflow_dispatch:
-    inputs:
-      notify_back_error_message:
-        description: Reserved for internal callback, do not fill
-        required: false
-        default: ''
 
 permissions: {}
 
 jobs:
-  # Skipped on the notify-back callback of rerun-failed-run, which only notifies.
   merge:
     name: Enable auto-merge on the release PR
-    if: github.event_name != 'workflow_dispatch' || inputs.notify_back_error_message == ''
     permissions:
       id-token: write # Vault OIDC/JWT auth
     runs-on: ubuntu-latest
@@ -74,82 +66,15 @@ jobs:
         {
           echo "## Release merge failed"
           echo
-          echo "Inspect the failed step in the job logs. A transient GitHub error reruns the failed jobs up to attempt 3; other failures alert #infra-alerts."
+          echo "Inspect the failed step in the job logs. A transient GitHub error reruns the failed jobs up to attempt 3."
           echo "The next daily run enables auto-merge on the release PR again."
         } >>"${GITHUB_STEP_SUMMARY}"
 
-  # A release PR open for 2 days or more: a required check fails, or auto-merge did not complete.
-  stale-release-prs:
-    name: Check stale release PRs
-    needs: [merge]
-    if: always() && github.event_name == 'schedule'
-    permissions:
-      id-token: write # Vault OIDC/JWT auth
-      pull-requests: read # list the release PRs
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-    - name: Check for stale release PRs
-      id: stale-check
-      env:
-        GH_TOKEN: ${{ github.token }}
-        GH_REPO: ${{ github.repository }}
-        STALE_THRESHOLD: '172800' # 2 days in seconds
-      run: |
-        stale_prs=$(gh pr list --state open --json number,title,url,labels,createdAt \
-          | jq --argjson threshold "$STALE_THRESHOLD" '[.[] | select(
-            any(.labels[]; .name | startswith("autorelease:")) and
-            ((.createdAt | fromdateiso8601) < (now - $threshold))
-          )]')
-        count=$(echo "$stale_prs" | jq 'length')
-        echo "count=$count" >>"$GITHUB_OUTPUT"
-
-        if [ "$count" -gt 0 ]; then
-          echo "$stale_prs" | jq -r '.[] | "::warning::Stale release PR: #\(.number) \(.title) - \(.url)"'
-          exit 1
-        fi
-
-    - name: Import Secrets
-      id: secrets
-      if: failure() && steps.stale-check.outputs.count > 0
-      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
-      with:
-        url: ${{ secrets.VAULT_ADDR }}
-        method: jwt
-        role: ${{ secrets.VAULT_JWT_ROLE }}
-        path: ${{ secrets.VAULT_JWT_PATH }}
-        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
-        exportEnv: false # we rely on step outputs, no need for environment variables
-        secrets: |
-          secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
-
-    - name: Notify Slack about stale release PRs
-      if: failure() && steps.stale-check.outputs.count > 0
-      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
-      with:
-        webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
-        webhook-type: incoming-webhook
-        errors: true # fail the step when Slack rejects the message: the action only warns by default
-        payload: |
-          text: |-
-            :warning: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>
-            ${{ steps.stale-check.outputs.count }} release PR(s) open for 2 days or more: a required check fails, or auto-merge did not complete
-            <!subteam^S01K6MZC3AQ|infra-medic> — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>
-
-    - name: Report failure
-      if: failure()
-      run: |
-        {
-          echo "## Stale release PRs"
-          echo
-          echo "A release PR is open for 2 days or more (see the warnings): fix its failing required check, or check why auto-merge did not complete."
-        } >>"${GITHUB_STEP_SUMMARY}"
-
-  # Retry transient failures (e.g. GitHub 504s); any other failure is notified back to the notify job of a new run.
+  # Retry transient failures (e.g. GitHub 504s); the run fails on any other failure or after the last attempt.
   rerun-failed-jobs:
     name: Rerun failed jobs
     needs: [merge]
-    if: failure() && fromJSON(github.run_attempt) < 3 && (github.event_name != 'workflow_dispatch' || inputs.notify_back_error_message == '')
+    if: failure() && fromJSON(github.run_attempt) < 3
     permissions:
       id-token: write # Vault OIDC/JWT auth
     runs-on: ubuntu-latest
@@ -161,7 +86,6 @@ jobs:
         error-messages: |
           code: 504
           non-200 OK status
-        notify-back-on-error: true
         run-id: ${{ github.run_id }}
         repository: ${{ github.repository }}
         vault-addr: ${{ secrets.VAULT_ADDR }}
@@ -170,57 +94,13 @@ jobs:
         vault-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
         vault-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
 
-  # A run that still fails after its last attempt or whose retry could not be triggered, or the notify-back callback of a
-  # failure that is not retried.
-  notify:
-    name: Notify on failure
-    needs: [merge, rerun-failed-jobs]
-    if: >-
-      always() && (
-        (contains(needs.*.result, 'failure') && (fromJSON(github.run_attempt) >= 3 || needs.rerun-failed-jobs.result == 'failure'))
-        || (github.event_name == 'workflow_dispatch' && inputs.notify_back_error_message != '')
-      )
-    permissions:
-      id-token: write # Vault OIDC/JWT auth
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-    - name: Import Secrets
-      id: secrets
-      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
-      with:
-        url: ${{ secrets.VAULT_ADDR }}
-        method: jwt
-        role: ${{ secrets.VAULT_JWT_ROLE }}
-        path: ${{ secrets.VAULT_JWT_PATH }}
-        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
-        exportEnv: false # we rely on step outputs, no need for environment variables
-        secrets: |
-          secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
-
-    - name: Notify Slack
-      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
-      with:
-        webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
-        webhook-type: incoming-webhook
-        errors: true # fail the step when Slack rejects the message: the action only warns by default
-        payload: |
-          text: |-
-            :alert: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>
-            Release merge failed
-            <!subteam^S01K6MZC3AQ|infra-medic> — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>
-
-            ${{ inputs.notify_back_error_message }}
-
   check:
     name: Check Release merge
     if: always()
     permissions: {}
     needs:
     - merge
-    - stale-release-prs
     - rerun-failed-jobs
-    - notify
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
