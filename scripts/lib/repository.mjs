@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { LABEL } from './fix-pr.mjs';
 import { parseToolDefinition } from './tool-definition.mjs';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -10,6 +11,13 @@ export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 // gh api with its arguments and input (the request body, '' for none), with gh's token (GH_TOKEN or GITHUB_TOKEN). Returns the
 // response body; an error status throws, with gh's message (e.g. "(HTTP 404)") in its stderr.
 export const ghApi = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
+
+// Every fix PR of a repository (owner/name), open or not, as lib/fix-pr.mjs takes them ({ number, state, body, headRefName }),
+// with gh and its token. An API error throws: fix PRs that cannot be read must not read as none.
+export function readFixPrs(repository) {
+  const json = execFileSync('gh', ['pr', 'list', '--repo', repository, '--label', LABEL, '--state', 'all', '--limit', '1000', '--json', 'number,state,body,headRefName'], { encoding: 'utf8' });
+  return JSON.parse(json);
+}
 
 export async function readToolDefinition(name) {
   return parseToolDefinition(name, JSON.parse(await readFile(join(ROOT, 'tools', name, 'tool.json'), 'utf8')));
