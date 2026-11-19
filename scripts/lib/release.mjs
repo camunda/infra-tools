@@ -3,6 +3,13 @@
 import { archOf, isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions } from './versions.mjs';
 
+// The version of the latest release, from the release-please manifest (its text; none when missing). release-please needs
+// a manifest from the start: its initial 0.0.0 is no release.
+export function releasedVersion(manifest) {
+  const version = manifest && JSON.parse(manifest)['.'];
+  return version === '0.0.0' ? undefined : version;
+}
+
 // The release before `version`: the highest X.Y.Z below it among the index tags (X.Y.Z-tools) of the registry, none before the
 // first release.
 export function previousRelease(tags, version) {
@@ -112,4 +119,27 @@ export function releaseNotes({ version, previousVersion, repository, before, aft
   table('➖ Retired', ['Tool', 'Version', 'Line', 'Tool release'], changes.retired.map((i) => [i.tool, i.version, i.line, link(i)]));
   if (out.length === 2) out.push('No tool changes.', '');
   return out.join('\n');
+}
+
+// tools.json, the release asset for people and scripts (ADR 0004): every tool version of the index entries of release
+// `version`, per platform with its layer digest and size.
+export function toolsJson({ version, image, entries }) {
+  const tools = {};
+  for (const e of entries) {
+    const versions = (tools[e.tool] ??= []);
+    let item = versions.find((v) => v.version === e.version);
+    if (!item) versions.push((item = { version: e.version, line: e.line, revision: e.revision, tag: e.tag, platforms: {} }));
+    item.platforms[e.platform] = { digest: e.digest, size: e.size };
+  }
+  const sorted = Object.keys(tools).sort().map((tool) => [tool, tools[tool].sort((a, b) => compareVersions(a.version, b.version))]);
+  return { release: version, index: `${image}:${version}-tools`, tools: Object.fromEntries(sorted) };
+}
+
+// Marks the tool tables in the notes of a release, so a rerun replaces them.
+const TOOLS_MARKER = '<!-- infra-tools: tools -->';
+
+// The body of a release: its release-please changelog (body; null when empty), then the release notes (releaseNotes).
+export function releaseBody(body, notes) {
+  const changelog = (body ?? '').split(TOOLS_MARKER)[0].trimEnd();
+  return `${changelog ? `${changelog}\n\n` : ''}${TOOLS_MARKER}\n## Tools\n\n${notes}`;
 }

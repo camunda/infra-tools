@@ -13,6 +13,7 @@ import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
+import { releasedVersion } from './lib/release.mjs';
 import { Registry, tagExists } from './lib/registry.mjs';
 import { ghApi, readCatalog, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
@@ -53,7 +54,7 @@ try {
 } catch {
   // before the first release
 }
-const previousVersion = manifest ? JSON.parse(manifest)['.'] : undefined;
+const previousVersion = releasedVersion(manifest);
 const registry = new Registry(values.image);
 const previousTag = `${previousVersion}-tools`;
 if (previousVersion && !(await registry.exists(previousTag))) throw new Error(`${values.image}:${previousTag}: index of the latest release not found`);
