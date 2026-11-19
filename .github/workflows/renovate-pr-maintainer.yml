@@ -85,6 +85,7 @@ jobs:
       with:
         webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
         webhook-type: incoming-webhook
+        errors: true # fail the step when Slack rejects the message: the action only warns by default
         payload-file-path: ${{ runner.temp }}/stuck-prs.json
 
     - name: Report failure
@@ -150,6 +151,7 @@ jobs:
       with:
         webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
         webhook-type: incoming-webhook
+        errors: true # fail the step when Slack rejects the message: the action only warns by default
         payload: |
           text: |-
             :alert: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>
