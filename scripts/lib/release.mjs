@@ -3,6 +3,16 @@
 import { archOf, isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions } from './versions.mjs';
 
+// The release before `version`: the highest X.Y.Z below it among the index tags (X.Y.Z-tools) of the registry, none before the
+// first release.
+export function previousRelease(tags, version) {
+  return tags
+    .map((t) => t.match(/^(\d+\.\d+\.\d+)-tools$/)?.[1])
+    .filter((v) => v && compareVersions(v, version) < 0)
+    .sort(compareVersions)
+    .at(-1);
+}
+
 // One tool version, and one tool version on one platform.
 const versionKey = (e) => `${e.tool}|${e.version}`;
 const keyOf = (e) => `${e.platform}|${versionKey(e)}`;

@@ -1,5 +1,5 @@
 // Fake OCI registry for tests, over http on 127.0.0.1: bearer token exchange as on ghcr.io (pull, or pull and push), manifests by
-// tag or digest, blobs and blob uploads. Records every request.
+// tag or digest, tag listing (pageSize tags per page), blobs and blob uploads. Records every request.
 import { createServer } from 'node:http';
 import { MEDIA_TYPES, sha256 } from '../lib/oci.mjs';
 import { indexEntries, ociIndex } from '../lib/oci-index.mjs';
@@ -21,6 +21,7 @@ export class FakeRegistry {
   manifests = new Map(); // tag or digest → { mediaType, bytes }
   blobs = new Map(); // digest → bytes
   uploads = 0;
+  pageSize = 100; // tags per page of the tag listing
 
   async start() {
     this.server = createServer((req, res) => this.handle(req, res).catch((err) => res.writeHead(500).end(err.message)));
@@ -94,12 +95,24 @@ export class FakeRegistry {
       const challenge = `Bearer realm="http://${this.host}/token",service="${this.host}",scope="repository:${REPOSITORY}:pull"`;
       return res.writeHead(401, { 'WWW-Authenticate': challenge }).end();
     }
+    if (url.pathname === `/v2/${REPOSITORY}/tags/list`) return this.listTags(res, url);
     const match = url.pathname.match(/^\/v2\/(.+?)\/(blobs\/uploads|manifests|blobs)\/(.*)$/);
     if (!match || match[1] !== REPOSITORY) return res.writeHead(404).end();
     const [, , kind, reference] = match;
     if (kind === 'blobs/uploads') return this.upload(req, res, url, reference);
     if (kind === 'manifests') return this.serveManifest(req, res, reference);
     return this.serveBlob(req, res, reference);
+  }
+
+  // Tags in lexical order, a page at a time: the next page is linked with `last`, as on ghcr.io.
+  listTags(res, url) {
+    const last = url.searchParams.get('last');
+    const n = Math.min(Number(url.searchParams.get('n') ?? this.pageSize), this.pageSize);
+    const tags = [...this.manifests.keys()].filter((r) => !r.startsWith('sha256:')).sort().filter((t) => !last || t > last);
+    const page = tags.slice(0, n);
+    const headers = { 'Content-Type': 'application/json' };
+    if (tags.length > n) headers.Link = `</v2/${REPOSITORY}/tags/list?n=${n}&last=${encodeURIComponent(page.at(-1))}>; rel="next"`;
+    return res.writeHead(200, headers).end(JSON.stringify({ name: REPOSITORY, tags: page }));
   }
 
   async serveManifest(req, res, reference) {
