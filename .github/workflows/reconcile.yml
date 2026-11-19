@@ -30,6 +30,8 @@ env:
 jobs:
   plan:
     name: Plan
+    # Only main publishes: a manual run on another branch would push its unreviewed tool definitions and record them into main.
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
       packages: read # read the published tags
