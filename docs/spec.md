@@ -159,7 +159,7 @@ Lines (D41), per upstream version: find its line (the explicit line it belongs t
 
 ### 5.3 Reconciler
 
-Runs on a schedule, on push to `main` and on demand; one run at a time (`concurrency`).
+Runs on a schedule, on push to `main` and on demand; one run at a time, in a concurrency group shared with every workflow that pushes tool images (`publish-tool.yml` until the first release): the tag of a tool image is checked, then written, so two runs must not push the same one.
 
 1. Plan, per tool:
    - List upstream versions per platform; keep versions available for every platform (others wait; fix PR after N days).
