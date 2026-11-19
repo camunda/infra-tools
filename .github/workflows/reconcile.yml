@@ -4,8 +4,8 @@ name: Reconcile
 # Reconciler (spec §5.3, ADR 0005): publishes every upstream version within the version lines of the tool definitions. Builds,
 # tests and pushes the missing tool images with the job token, creates their tool releases, and records them in one commit per
 # run, pushed to main by the Infra - Misc App, bypass actor of the main ruleset (D49). A version that fails to build or test is
-# tracked in a fix PR, and every run checks that nothing in range is left unpublished (R17); a failed run alerts #infra-alerts
-# (D54).
+# tracked in a fix PR, and every run checks that nothing in range is left unpublished (R17); a failure fails the run, with
+# guidance in its job summaries (no Slack alert yet, D54).
 on:
   schedule:
   - cron: '0 */6 * * *' # every 6 hours
@@ -157,7 +157,7 @@ jobs:
           echo
           echo "A failed build or test is tracked in a fix PR and leaves this job green: this failure is another one, such as a push to ghcr.io."
           echo "Inspect the failed step in the job logs."
-          echo "A registry error is usually transient: a scheduled or push run reruns its failed jobs up to attempt 3, then alerts #infra-alerts."
+          echo "A registry error is usually transient: a scheduled or push run reruns its failed jobs up to attempt 3."
           echo "The next run plans the version again."
         } >>"${GITHUB_STEP_SUMMARY}"
 
@@ -340,7 +340,7 @@ jobs:
           echo "  The next run plans them again."
         } >>"${GITHUB_STEP_SUMMARY}"
 
-  # Retry transient failures (e.g. registry or GitHub API errors) of unattended runs; notify alerts after the last attempt.
+  # Retry transient failures (e.g. registry or GitHub API errors) of unattended runs; the run fails after the last attempt.
   rerun-failed-jobs:
     name: Rerun failed jobs
     needs:
@@ -365,49 +365,6 @@ jobs:
         vault-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
         vault-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
 
-  # An unattended run (scheduled, or on push to main) that still fails after its last attempt, or whose retry could not be
-  # triggered: reconciler and completeness-check failures alert #infra-alerts (D54).
-  notify:
-    name: Notify on failure
-    needs:
-    - plan
-    - build
-    - record
-    - fix-prs
-    - rerun-failed-jobs
-    if: |-
-      always() && github.event_name != 'workflow_dispatch' && contains(needs.*.result, 'failure') &&
-      (fromJSON(github.run_attempt) >= 3 || needs.rerun-failed-jobs.result == 'failure')
-    permissions:
-      id-token: write # Vault OIDC/JWT auth
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-    - name: Import Secrets
-      id: secrets
-      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
-      with:
-        url: ${{ secrets.VAULT_ADDR }}
-        method: jwt
-        role: ${{ secrets.VAULT_JWT_ROLE }}
-        path: ${{ secrets.VAULT_JWT_PATH }}
-        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
-        exportEnv: false # we rely on step outputs, no need for environment variables
-        secrets: |
-          secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
-
-    - name: Notify Slack
-      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
-      with:
-        webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
-        webhook-type: incoming-webhook
-        errors: true # fail the step when Slack rejects the message: the action only warns by default
-        payload: |
-          text: |-
-            :alert: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>
-            Reconciler failed (failure guidance in the job summaries)
-            <!subteam^S01K6MZC3AQ|infra-medic> — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>
-
   check:
     name: Check Reconcile
     if: always()
@@ -418,7 +375,6 @@ jobs:
     - record
     - fix-prs
     - rerun-failed-jobs
-    - notify
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
