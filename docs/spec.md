@@ -90,7 +90,7 @@ infra-tools/
 │   ├── builder.Dockerfile        # build-platform image where install.sh runs (download, install-tool)
 │   ├── tool.Dockerfile           # default tool build → FROM scratch tool image
 │   └── test.Dockerfile           # runs test.sh on the target platform
-├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index, pull-request, stuck-prs (+ lib/, test/)
+├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index, pull-request, release-merge, stuck-prs (+ lib/, test/)
 │   ├── package.json              # renovate (getPkgReleases)
 │   ├── superseded.sh             # superseded-run guard of the reconciler
 │   └── action/setup.sh           # implementation of the action
@@ -205,7 +205,7 @@ Releases (release-please, D25):
 
 - One component at `.`, `exclude-paths`: `tools`, `docs`, `build`, `.github` and every entry of `scripts/` except `action/`. Bot record commits (`published/`) and action changes (`action.yml`, `scripts/action/`) produce release PRs.
 - Config in `.github/config/` (infra convention); tags `X.Y.Z` (D30).
-- A daily workflow merges the open release PR if it is green; the merge creates `X.Y.Z`.
+- A daily workflow merges the open release PR if it is green (`release-merge.mjs`); the merge creates `X.Y.Z`. It alerts when the release PR is open for 2 days or more, or when the merge only enabled auto-merge.
 - On every push to `main`, each release without `tools.json`, oldest first, so a release whose publication failed is completed before a later one (`index.mjs release`):
   1. Index = previous index + `published/` entries − retired versions; fail if a declared entry has no tag.
   2. Push the per-platform artifact manifests and the `X.Y.Z-tools` index; no layer is uploaded twice.

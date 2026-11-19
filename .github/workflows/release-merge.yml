@@ -3,7 +3,7 @@ name: Release merge
 
 # Daily release (spec §5.5, D25): merges the open release PR of release-please when it is green, as the Infra - Misc App,
 # bypass actor of the main ruleset (D56); release.yml then creates and publishes the release. Alerts #infra-alerts when a
-# release PR stays open for 2 days or more.
+# release PR stays open for 2 days or more, or when the merge only enabled auto-merge (scripts/release-merge.mjs).
 on:
   schedule:
   - cron: '0 5 * * *' # every day at 05:00 UTC
@@ -19,9 +19,18 @@ jobs:
       id-token: write # Vault OIDC/JWT auth
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    outputs:
-      stale: ${{ steps.merge.outputs.stale }}
     steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    # No dependencies to install: release-merge.mjs uses none.
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+
     - name: Generate a GitHub token
       id: app-token
       uses: camunda/infra-global-github-actions/generate-github-app-token-from-vault-secrets@main
@@ -37,57 +46,21 @@ jobs:
         vault-url: ${{ secrets.VAULT_ADDR }}
 
     # A bypass actor merges without the ruleset's requirements: the release PR is merged only once its Check CI passed. A PR
-    # labelled no-merge is left alone.
+    # labelled no-merge is left alone. The merge may only enable auto-merge: the PR's state after it says which.
     - name: Merge the release PR when green
       id: merge
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        GH_REPO: ${{ github.repository }}
-        STALE_SECONDS: '172800' # 2 days
+        REPOSITORY: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
-        pr="$(gh pr list --label 'autorelease: pending' --state open --json number,labels,createdAt --jq '
-          [.[] | select(.labels | map(.name) | index("no-merge") | not)] | first // empty')"
-        if [[ -z "${pr}" ]]; then
-          echo "No release PR to merge."
-          exit 0
-        fi
-        number="$(jq -r .number <<<"${pr}")"
-        if jq -e --argjson stale "${STALE_SECONDS}" '(.createdAt | fromdateiso8601) < now - $stale' <<<"${pr}" >/dev/null; then
-          echo "::warning::Release PR #${number} is open for 2 days or more"
-          echo "stale=${number}" >>"${GITHUB_OUTPUT}"
-        fi
-        # gh pr checks exits with 8 while checks are pending.
-        checks="$(gh pr checks "${number}" --json name,bucket)" || [[ $? == 8 ]]
-        result="$(jq -r 'map(select(.name == "Check CI")) | first | .bucket // "missing"' <<<"${checks}")"
-        if [[ "${result}" != pass ]]; then
-          echo "Release PR #${number} not merged: Check CI is ${result}."
-          exit 0
-        fi
-        gh pr merge "${number}" --auto --squash
-        echo "Release PR #${number} merged."
+        node scripts/release-merge.mjs --repository "${REPOSITORY}" --run-url "${RUN_URL}" --out "${RUNNER_TEMP}/release-merge-alert.json" --summary "${GITHUB_STEP_SUMMARY}"
+        if [[ -f "${RUNNER_TEMP}/release-merge-alert.json" ]]; then echo "alert=true" >>"${GITHUB_OUTPUT}"; fi
 
-    - name: Report failure
-      if: failure()
-      run: |
-        {
-          echo "## Release merge failed"
-          echo
-          echo "Inspect the failed step in the job logs. A scheduled run reruns its failed jobs up to attempt 3, then alerts #infra-alerts."
-          echo "A GitHub API error is usually transient: the next daily run merges the release PR."
-        } >>"${GITHUB_STEP_SUMMARY}"
-
-  # A release PR open for 2 days or more: its CI keeps failing, or the merge does not happen.
-  stale:
-    name: Alert on a stale release PR
-    needs: merge
-    if: always() && needs.merge.outputs.stale != ''
-    permissions:
-      id-token: write # Vault OIDC/JWT auth
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
+    # A release PR open for 2 days or more (its CI keeps failing, or the merge does not happen), or waiting for auto-merge.
     - name: Import Secrets
       id: secrets
+      if: steps.merge.outputs.alert == 'true'
       uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
       with:
         url: ${{ secrets.VAULT_ADDR }}
@@ -99,23 +72,29 @@ jobs:
         secrets: |
           secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
 
-    - name: Notify Slack
+    - name: Alert on the release PR
+      if: steps.merge.outputs.alert == 'true'
       uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
       with:
         webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
         webhook-type: incoming-webhook
         errors: true # fail the step when Slack rejects the message: the action only warns by default
-        payload: |
-          text: |-
-            :warning: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>
-            Release PR <${{ github.server_url }}/${{ github.repository }}/pull/${{ needs.merge.outputs.stale }}|#${{ needs.merge.outputs.stale }}> open for 2 days or more
-            Its CI fails, or it is not merged
-            <!subteam^S01K6MZC3AQ|infra-medic> — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>
+        payload-file-path: ${{ runner.temp }}/release-merge-alert.json
+
+    - name: Report failure
+      if: failure()
+      run: |
+        {
+          echo "## Release merge failed"
+          echo
+          echo "Inspect the failed step in the job logs. A scheduled run reruns its failed jobs up to attempt 3, then alerts #infra-alerts."
+          echo "A GitHub API error is usually transient: the next daily run merges the release PR."
+        } >>"${GITHUB_STEP_SUMMARY}"
 
   # Retry transient failures (e.g. GitHub API errors) of scheduled runs; notify alerts after the last attempt.
   rerun-failed-jobs:
     name: Rerun failed jobs
-    needs: [merge, stale]
+    needs: [merge]
     if: failure() && github.event_name == 'schedule' && fromJSON(github.run_attempt) < 3
     permissions:
       id-token: write # Vault OIDC/JWT auth
@@ -136,7 +115,7 @@ jobs:
   # A scheduled run that still fails after its last attempt, or whose retry could not be triggered.
   notify:
     name: Notify on failure
-    needs: [merge, stale, rerun-failed-jobs]
+    needs: [merge, rerun-failed-jobs]
     if: >-
       always() && github.event_name == 'schedule' && contains(needs.*.result, 'failure') && (fromJSON(github.run_attempt) >= 3 || needs.rerun-failed-jobs.result == 'failure')
     permissions:
@@ -175,7 +154,6 @@ jobs:
     permissions: {}
     needs:
     - merge
-    - stale
     - rerun-failed-jobs
     - notify
     runs-on: ubuntu-latest
