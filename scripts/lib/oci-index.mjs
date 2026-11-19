@@ -1,5 +1,5 @@
 // The index as an OCI artifact (D3, ADR 0004): an image index with one artifact manifest per platform, whose layers are the
-// tool image layers, annotated with the tool version they hold. The action reads these annotations (scripts/action/setup.sh).
+// tool image layers, annotated with the tool version they hold. The action reads these annotations (action/setup.sh).
 import { EMPTY_CONFIG, manifestBytes, MEDIA_TYPES, sha256 } from './oci.mjs';
 import { PLATFORMS } from './tool-definition.mjs';
 

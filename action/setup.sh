@@ -13,7 +13,7 @@ if [[ "${RUNNER_OS:-}" != Linux ]]; then
   exit 0
 fi
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 annotation=io.camunda.infra-tools
 media_index=application/vnd.oci.image.index.v1+json
 media_manifest=application/vnd.oci.image.manifest.v1+json

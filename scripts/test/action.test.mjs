@@ -10,7 +10,7 @@ import { after, before, beforeEach, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { FakeRegistry, REPOSITORY, TOKEN } from './fake-registry.mjs';
 
-const SETUP = fileURLToPath(new URL('../action/setup.sh', import.meta.url));
+const SETUP = fileURLToPath(new URL('../../action/setup.sh', import.meta.url));
 const ARCH_FOLDERS = { 'linux/amd64': 'x64', 'linux/arm64': 'arm64' };
 
 // A tool image layer: opt/hostedtoolcache/<cache folder>/<folder version>/<arch>, marked complete, as build/tool.Dockerfile
@@ -331,14 +331,14 @@ test('an unreachable registry fails with a clear message', async () => {
 // A copy of the action, with the tool definitions of tools/ and the given release-please manifest (none: no manifest).
 async function actionWithManifest(manifest) {
   const action = join(runner, 'action');
-  await mkdir(join(action, 'scripts/action'), { recursive: true });
-  await writeFile(join(action, 'scripts/action/setup.sh'), await readFile(SETUP));
+  await mkdir(join(action, 'action'), { recursive: true });
+  await writeFile(join(action, 'action/setup.sh'), await readFile(SETUP));
   await cp(fileURLToPath(new URL('../../tools', import.meta.url)), join(action, 'tools'), { recursive: true });
   if (manifest) {
     await mkdir(join(action, '.github/config'), { recursive: true });
     await writeFile(join(action, '.github/config/.release-please-manifest.json'), manifest);
   }
-  return join(action, 'scripts/action/setup.sh');
+  return join(action, 'action/setup.sh');
 }
 
 // ghcr.io is reached through the fake registry as an http proxy: no network.
@@ -470,12 +470,12 @@ test('mode: validate fails on a plain tool listed under tool-cache, naming the r
 test('mode: validate fails on a tool-cache tool listed under tools, naming the right input and its setup-* step', async () => {
   // A copy of the action with a tool-cache tool definition (no addToPath).
   const action = join(runner, 'action');
-  await mkdir(join(action, 'scripts/action'), { recursive: true });
-  await writeFile(join(action, 'scripts/action/setup.sh'), await readFile(SETUP));
+  await mkdir(join(action, 'action'), { recursive: true });
+  await writeFile(join(action, 'action/setup.sh'), await readFile(SETUP));
   await mkdir(join(action, 'tools/java'), { recursive: true });
   await writeFile(join(action, 'tools/java/tool.json'), JSON.stringify({ install: { cacheFolder: 'Java_Temurin-Hotspot_jdk' } }));
   await repositoryFile('.github/workflows/ci.yml', step({ tools: ['java@21'] }));
-  const result = await validate({}, { setup: join(action, 'scripts/action/setup.sh') });
+  const result = await validate({}, { setup: join(action, 'action/setup.sh') });
   assert.notEqual(result.status, 0);
   assert.match(result.log, /^::error file=\.github\/workflows\/ci\.yml::infra-tools: java is a tool-cache tool: list it under tool-cache, not tools, and keep its setup-\* step$/m);
 });

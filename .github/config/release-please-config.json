@@ -9,8 +9,8 @@
     { "type": "build", "section": "Build System", "hidden": true },
     { "type": "chore", "section": "Miscellaneous Chores", "hidden": true },
     { "type": "ci", "section": "Continuous Integration", "hidden": true },
-    { "type": "deps", "section": "Dependencies" },
-    { "type": "docs", "section": "Documentation" },
+    { "type": "deps", "section": "Dependencies", "hidden": true },
+    { "type": "docs", "section": "Documentation", "hidden": true },
     { "type": "feat", "section": "Features" },
     { "type": "fix", "section": "Bug Fixes" },
     { "type": "perf", "section": "Performance Improvements" },
@@ -25,8 +25,7 @@
         ".github",
         "build",
         "docs",
-        "scripts/lib",
-        "scripts/test",
+        "scripts",
         "tools"
       ]
     }
