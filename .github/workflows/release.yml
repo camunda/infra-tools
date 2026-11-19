@@ -1,0 +1,187 @@
+---
+name: Release
+
+# Releases (spec §5.5, D25): release-please keeps a release PR up to date with the record commits and the action changes since
+# the latest release (config in .github/config/), and creates release X.Y.Z once release-merge.yml merged it. The release is
+# then published: its X.Y.Z-tools index pushed to ghcr.io, the Added / Replaced / Retired tables added to its notes and
+# tools.json attached. A release whose publication failed is completed by the next run.
+on:
+  push:
+    branches:
+    - main
+
+permissions: {}
+
+# One run at a time, never cancelled: a run publishes the release the previous one may have created.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/camunda/infra-tools
+
+jobs:
+  # release-type node with a package-name, so release-please needs no package.json at the root.
+  release-please:
+    name: Release Please
+    permissions:
+      contents: read
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Import Secrets
+      id: vault-secrets
+      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+      with:
+        url: ${{ secrets.VAULT_ADDR }}
+        method: jwt
+        role: ${{ secrets.VAULT_JWT_ROLE }}
+        path: ${{ secrets.VAULT_JWT_PATH }}
+        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        exportEnv: false # we rely on step outputs, no need for environment variables
+        secrets: |
+          secret/data/products/infra/ci/infra-releases RELEASES_APP_ID;
+          secret/data/products/infra/ci/infra-releases RELEASES_APP_KEY;
+
+    # The infra-releases App (D56): its release PRs and releases start the workflows a job token's would not.
+    - name: Generate a GitHub token
+      id: app-token
+      uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+      with:
+        app-id: ${{ steps.vault-secrets.outputs.RELEASES_APP_ID }}
+        private-key: ${{ steps.vault-secrets.outputs.RELEASES_APP_KEY }}
+        permission-contents: write # release commits on the release PR branch, tags and releases
+        permission-issues: write # release PR labels
+        permission-pull-requests: write # the release PR
+
+    - name: Handle Release Creation
+      uses: camunda/infra-global-github-actions/teams/infra/pull-request/release@main
+      with:
+        github-token: ${{ steps.app-token.outputs.token }}
+
+  # The release of the release-please manifest, once created and until it has tools.json: nothing to do on other runs.
+  publish:
+    name: Publish the release
+    needs: release-please
+    permissions:
+      contents: write # add the tool tables to the release notes and attach tools.json
+      packages: write # push the index to ghcr.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+        cache: npm
+        cache-dependency-path: scripts/package-lock.json
+
+    - name: Install dependencies
+      run: npm ci --prefix scripts
+
+    # Fails when a catalog version lost its tag, or on a registry or GitHub API outage.
+    - name: Publish the release
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+      run: node scripts/index.mjs --release --image "${IMAGE}" --repository "${REPOSITORY}"
+
+    - name: Report failure
+      if: failure()
+      run: |
+        {
+          echo "## Release publication failed"
+          echo
+          echo "Inspect the failed step in the job logs. A failed run reruns its failed jobs up to attempt 3, then alerts #infra-alerts."
+          echo "The release stays unpublished (no tools.json) until a run succeeds: the next push to main, or a rerun of this one, completes it."
+          echo "A catalog version whose tag is missing needs its tool image published again (revision bump) or its version retired."
+        } >>"${GITHUB_STEP_SUMMARY}"
+
+  # Retry transient failures (e.g. GitHub API or registry errors); notify alerts after the last attempt.
+  rerun-failed-jobs:
+    name: Rerun failed jobs
+    needs: [release-please, publish]
+    if: failure() && fromJSON(github.run_attempt) < 3
+    permissions:
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Retrigger failed jobs
+      uses: camunda/infra-global-github-actions/rerun-failed-run@main
+      with:
+        run-id: ${{ github.run_id }}
+        repository: ${{ github.repository }}
+        vault-addr: ${{ secrets.VAULT_ADDR }}
+        vault-auth-method: jwt
+        vault-jwt-role: ${{ secrets.VAULT_JWT_ROLE }}
+        vault-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
+        vault-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+
+  # A run that still fails after its last attempt, or whose retry could not be triggered.
+  notify:
+    name: Notify on failure
+    needs: [release-please, publish, rerun-failed-jobs]
+    if: >-
+      always() && contains(needs.*.result, 'failure') && (fromJSON(github.run_attempt) >= 3 || needs.rerun-failed-jobs.result == 'failure')
+    permissions:
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Import Secrets
+      id: secrets
+      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+      with:
+        url: ${{ secrets.VAULT_ADDR }}
+        method: jwt
+        role: ${{ secrets.VAULT_JWT_ROLE }}
+        path: ${{ secrets.VAULT_JWT_PATH }}
+        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        exportEnv: false # we rely on step outputs, no need for environment variables
+        secrets: |
+          secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
+
+    - name: Notify Slack
+      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+      with:
+        webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
+        webhook-type: incoming-webhook
+        errors: true # fail the step when Slack rejects the message: the action only warns by default
+        payload: |
+          text: |-
+            :alert: <${{ github.server_url }}/${{ github.repository }}|${{ github.repository }}>
+            Release failed
+            <!subteam^S01K6MZC3AQ|infra-medic> — <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>
+
+  check:
+    name: Check Release
+    if: always()
+    permissions: {}
+    needs:
+    - release-please
+    - publish
+    - rerun-failed-jobs
+    - notify
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Check results
+      env:
+        ERROR: >-
+          ${{
+            contains(needs.*.result, 'failure') ||
+            contains(needs.*.result, 'cancelled')
+          }}
+      run: |
+        if [ "$ERROR" == "true" ]; then
+          echo "Some release jobs have failed or been cancelled."
+          exit 1
+        fi
+        echo "All release jobs passed or were skipped."
