@@ -8,7 +8,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { fixPrChanges, LABEL, trackedVersions } from './lib/fix-pr.mjs';
+import { FIX_PR_LABEL, fixPrChanges, trackedVersions } from './lib/fix-pr.mjs';
 import { planEveryTool } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
 import { ghApi, readFixPrs } from './lib/repository.mjs';
@@ -49,14 +49,14 @@ function emptyCommitBranch(branch, message) {
 }
 
 const failures = await readFailures(values.failures);
-const pulls = readFixPrs(values.repository);
-const { plans } = await planEveryTool(new Registry(values.image), { fixPrs: trackedVersions(pulls) });
-const changes = fixPrChanges({ failures, pulls, plans, runUrl: values['run-url'] });
+const pullRequests = readFixPrs(values.repository);
+const { plans } = await planEveryTool(new Registry(values.image), { fixPrs: trackedVersions(pullRequests) });
+const changes = fixPrChanges({ failures, pullRequests, plans, runUrl: values['run-url'] });
 for (const change of changes) {
   if (change.action === 'open') {
     emptyCommitBranch(change.branch, change.title);
     const { number, html_url: url } = api('POST', 'pulls', { title: change.title, head: change.branch, base: values.base, body: change.body });
-    api('POST', `issues/${number}/labels`, { labels: [LABEL] });
+    api('POST', `issues/${number}/labels`, { labels: [FIX_PR_LABEL] });
     console.log(`${change.title}: opened ${url}`);
   } else if (change.action === 'update') {
     api('PATCH', `pulls/${change.number}`, { title: change.title, body: change.body });

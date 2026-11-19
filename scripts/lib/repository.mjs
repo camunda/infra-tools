@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { LABEL } from './fix-pr.mjs';
+import { FIX_PR_LABEL } from './fix-pr.mjs';
 import { parseToolDefinition } from './tool-definition.mjs';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -15,7 +15,7 @@ export const ghApi = (input, ...args) => execFileSync('gh', ['api', ...args], { 
 // Every fix PR of a repository (owner/name), open or not, as lib/fix-pr.mjs takes them ({ number, state, body, headRefName }),
 // with gh and its token. An API error throws: fix PRs that cannot be read must not read as none.
 export function readFixPrs(repository) {
-  const json = execFileSync('gh', ['pr', 'list', '--repo', repository, '--label', LABEL, '--state', 'all', '--limit', '1000', '--json', 'number,state,body,headRefName'], { encoding: 'utf8' });
+  const json = execFileSync('gh', ['pr', 'list', '--repo', repository, '--label', FIX_PR_LABEL, '--state', 'all', '--limit', '1000', '--json', 'number,state,body,headRefName'], { encoding: 'utf8' });
   return JSON.parse(json);
 }
 
