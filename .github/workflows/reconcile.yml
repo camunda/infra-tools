@@ -17,9 +17,10 @@ on:
 
 permissions: {}
 
-# One run at a time, never cancelled: a run plans against what the previous one published.
+# One run at a time, never cancelled: a run plans against what the previous one published. The group is shared with
+# publish-tool.yml, which pushes tool images too: a tag is checked, then written, so two runs must not push the same one.
 concurrency:
-  group: ${{ github.workflow }}
+  group: publish-tool-images
   cancel-in-progress: false
 
 env:
