@@ -43,8 +43,9 @@ export async function checkPullRequest({ tools, baseTools, changedFiles, plan: p
     planned[tool.name] = plan.versions.filter((v) => v.decision === 'publish');
     const plannedVersions = new Set(planned[tool.name].map((v) => v.version));
     // A version stays available to consumers until it is retired, even out of every line or delisted upstream: available
-    // versions come from the catalog, not the plan. A planned revision replaces its published tool image.
-    const available = (catalogs[tool.name] ?? []).filter((e) => !e.retired && !isRetired(tool, e.version) && !plannedVersions.has(e.version));
+    // versions come from the catalog, not the plan, retired as the PR's tool definition says (mergeCatalog), so a version it
+    // restores is checked before it is available again. A planned revision replaces its published tool image.
+    const available = (catalogs[tool.name] ?? []).filter((e) => !isRetired(tool, e.version) && !plannedVersions.has(e.version));
     const changed = imageFiles(tool, toolFiles(tool, changedFiles), baseTools[tool.name]);
     if (changed.length && available.length) {
       const versions = available.map((e) => `${e.version} (${e.tag})`);

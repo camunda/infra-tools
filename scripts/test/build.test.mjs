@@ -55,7 +55,8 @@ test('a dry run also builds a published version the tool definition no longer pu
   const target = buildTarget(maven, '3.8.9', { catalogEntry });
   assert.deepEqual([target.line, target.revision, target.tag], ['3.8', 2, 'maven-3.8.9-r2']);
   assert.equal(buildTarget(maven, '3.9.16', { catalogEntry: { version: '3.9.16', line: '3.9', revision: 1, tag: 'maven-3.9.16-r1' } }).tag, 'maven-3.9.16-r1');
-  // Retired versions and retired catalog entries are never built.
+  // Versions the tool definition retires are never built, retired in the catalog or not; one it no longer retires (restored)
+  // is built even while the catalog still marks it retired.
   assert.throws(() => buildTarget(maven, '3.10.1', { catalogEntry: { version: '3.10.1', line: '*', revision: 1, tag: 'maven-3.10.1-r1' } }), { message: 'tools/maven/tool.json: maven 3.10.1 is retired in line *' });
-  assert.throws(() => buildTarget(maven, '3.8.9', { catalogEntry: { ...catalogEntry, retired: true } }), { message: 'tools/maven/tool.json: maven 3.8.9 is in no version line' });
+  assert.equal(buildTarget(maven, '3.8.9', { catalogEntry: { ...catalogEntry, retired: true } }).tag, 'maven-3.8.9-r2');
 });

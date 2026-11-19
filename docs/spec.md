@@ -184,7 +184,7 @@ Safeguards: never overwrite a tag; fail when a version of the catalog lost its t
 
 Jobs of `ci.yml` on pull requests, read only: nothing is pushed or published.
 
-- Plan and build in dry run: planned versions, plus the latest published version per major of every tool whose files changed (`tools/<tool>/`; the shared build, `build/`, `scripts/build.mjs` and `scripts/lib/build.mjs`, changes every tool), built and tested for every platform without `--push`. Published versions are the catalog's non-retired entries: a version stays available until it is retired, even out of every line or delisted upstream.
+- Plan and build in dry run: planned versions, plus the latest published version per major of every tool whose files changed (`tools/<tool>/`; the shared build, `build/`, `scripts/build.mjs` and `scripts/lib/build.mjs`, changes every tool), built and tested for every platform without `--push`. Published versions are the catalog's entries the PR's tool definition does not retire, as the release notes preview counts them: a version stays available until it is retired, even out of every line or delisted upstream, and a version the PR restores is checked before it is available again.
 - Warn when a published version's build files changed without a revision bump: its tool image files, not its tests (`test.sh`, `build/test.Dockerfile`), and `tool.json` only when its `install` block changed.
 - Comment the release notes the next release would produce: the latest release's index + the catalog + the planned versions − retired versions, compared with the latest release's index. One comment per PR, updated on each push, and updated to say so when a later push no longer changes tools; fork PRs get it in the job summary only.
 
