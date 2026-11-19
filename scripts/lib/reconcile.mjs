@@ -14,6 +14,14 @@ export async function checkCatalogTags({ catalogs, tagExists }) {
   if (lost.length) throw new Error(`published versions lost their tag; published tool images never change:\n${lost.join('\n')}`);
 }
 
+// Completeness check (R17): fails when a version in range is neither published nor tracked, once the run's builds are recorded
+// and its failures are in fix PRs. plans: planTool's result per tool then, with the fix PRs: tracked versions wait, are ignored
+// (skipped) or are retried by an open fix PR (fixPr set).
+export function checkCompleteness(plans) {
+  const gaps = Object.values(plans).flatMap((plan) => plan.versions.filter((v) => v.decision === 'publish' && !v.fixPr).map((v) => `${plan.tool} ${v.version} (${v.reason})`));
+  if (gaps.length) throw new Error(`versions in range neither published nor tracked by a fix PR (R17), see the build jobs of this run:\n${gaps.join('\n')}`);
+}
+
 // plans: planTool's result per tool, once the run's builds are pushed. Every version whose tool image exists (reason
 // published) is recorded when the catalog lacks it at that revision, whether this run or an earlier one that failed before
 // its record commit pushed it; failed builds stay planned and are not recorded.

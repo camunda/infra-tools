@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { checkCatalogTags, commitMessage, recordRun } from '../lib/reconcile.mjs';
+import { checkCatalogTags, checkCompleteness, commitMessage, recordRun } from '../lib/reconcile.mjs';
 import { Registry } from '../lib/registry.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 import { catalogEntry } from './catalog-entry.mjs';
@@ -113,4 +113,26 @@ test('a catalog version whose tag is gone fails the run instead of being publish
   tags.add('node-24.19.0-r1');
   await checkCatalogTags({ catalogs, tagExists: async (tag) => tags.has(tag) });
   await assert.rejects(checkCatalogTags({ catalogs, tagExists: async () => { throw new Error('HEAD ghcr.io: HTTP 503'); } }), { message: 'HEAD ghcr.io: HTTP 503' });
+});
+
+test('the completeness check fails when a version in range is neither published nor tracked (R17)', () => {
+  const plans = {
+    node: {
+      tool: 'node',
+      versions: [
+        { version: '26.11.1', decision: 'skip', reason: 'published' },
+        { version: '26.11.2', decision: 'skip', reason: 'ignored: fix PR #3 closed without merge' },
+        { version: '26.11.3', decision: 'publish', reason: 'new, retried: fix PR #4', fixPr: 4 },
+        { version: '26.11.4', decision: 'wait', reason: 'released less than 1 day ago' },
+        { version: '26.11.5', decision: 'publish', reason: 'new' },
+      ],
+    },
+    maven: { tool: 'maven', versions: [{ version: '3.9.16', decision: 'publish', reason: 'pinned in versions' }, { version: '3.9.17', decision: 'skip', reason: 'published' }] },
+  };
+  assert.throws(() => checkCompleteness(plans), {
+    message: 'versions in range neither published nor tracked by a fix PR (R17), see the build jobs of this run:\nnode 26.11.5 (new)\nmaven 3.9.16 (pinned in versions)',
+  });
+  plans.node.versions[4] = { version: '26.11.5', decision: 'skip', reason: 'published' };
+  plans.maven.versions[0] = { version: '3.9.16', decision: 'skip', reason: 'published' };
+  checkCompleteness(plans);
 });
