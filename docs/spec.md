@@ -206,11 +206,11 @@ Releases (release-please, D25):
 - One component at `.`, `exclude-paths`: `tools`, `docs`, `build`, `.github` and `scripts`; `deps` and `docs` commits hidden from the changelog, as `chore`, `ci` and the other types that change neither the action nor the catalog. Bot record commits (`published/`) and action changes (`action.yml`, `action/`) produce release PRs: release-please ignores a commit whose files are all under `exclude-paths` (folders only, never root files), and opens no release PR when every commit left has a hidden type (no changelog entry), such as Renovate updates of root files (`.pre-commit-config.yaml`, `.tool-versions`) and README changes.
 - Config in `.github/config/` (infra convention); tags `X.Y.Z` (D30).
 - A daily workflow merges the open release PR if it is green (`release-merge.mjs`); the merge creates `X.Y.Z`. It alerts when the release PR is open for 2 days or more, or when the merge only enabled auto-merge.
-- On every push to `main`, each release without `tools.json`, oldest first, so a release whose publication failed is completed before a later one (`index.mjs release`):
+- On every push to `main`, each release without an uploaded `tools.json` (a failed upload can leave one in the `starter` state), oldest first, so a release whose publication failed is completed before a later one (`index.mjs release`):
   1. Index = previous index + `published/` entries − retired versions; fail if a declared entry has no tag.
   2. Push the per-platform artifact manifests and the `X.Y.Z-tools` index; no layer is uploaded twice.
   3. Compare with the previous index; append the Added / Replaced / Retired tables (with tool release links) to the notes.
-  4. Attach `tools.json` (every tool version per platform with its tag, layer digest and size); the tables go in the notes.
+  4. Attach `tools.json` (every tool version per platform with its tag, layer digest and size), replacing one a failed upload left; the tables go in the notes.
 
 ### 5.6 Action
 

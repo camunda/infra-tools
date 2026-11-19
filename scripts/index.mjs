@@ -4,8 +4,9 @@
 //   Publishes every release (X.Y.Z) without tools.json, oldest first, once release-please created it: pushes its index to
 //   --image (lib/publish-index.mjs publishRelease) from the tool definitions and the catalog at its tag, appends the Added /
 //   Replaced / Retired tables to its notes and attaches tools.json, written to --out (default build/out/release) first.
-//   tools.json is attached last: a release that has it is published, and is left alone; a release whose publication failed is
-//   completed by the next run, before any later release. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN).
+//   tools.json is attached last: a release that has it uploaded is published, and is left alone; a release whose publication
+//   failed is completed by the next run, before any later release, replacing the tools.json a failed upload left. Uses gh and
+//   its token (GH_TOKEN or GITHUB_TOKEN).
 //
 // node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>
 //   Prints the index the action tests install from (lib/release.mjs latestIndexTag): the latest release's, from the
@@ -45,6 +46,7 @@ function options(command, args, { required, defaults = {}, positionals = false }
 
 async function publishReleases(args) {
   const { values } = options('release', args, { required: ['image', 'repository'], defaults: { out: join(ROOT, 'build/out/release') } });
+  // With their assets' state: a failed upload can leave tools.json in the starter state.
   const releases = JSON.parse(ghApi('', '--paginate', '--slurp', `repos/${values.repository}/releases?per_page=100`)).flat();
   const unpublished = unpublishedReleases(releases);
   if (!unpublished.length) return console.log('every release is published');
@@ -70,7 +72,8 @@ async function publishOneRelease(release, { image, repository, out }) {
   await mkdir(out, { recursive: true });
   const asset = join(out, 'tools.json');
   await writeFile(asset, `${JSON.stringify(toolsJson({ version, image, entries }), null, 2)}\n`);
-  execFileSync('gh', ['release', 'upload', version, asset, '--repo', repository], { stdio: 'inherit' });
+  // --clobber: replaces the tools.json a failed upload left.
+  execFileSync('gh', ['release', 'upload', version, asset, '--clobber', '--repo', repository], { stdio: 'inherit' });
   console.log(`release ${version} published: ${release.html_url}\n\n${notes}`);
 }
 
