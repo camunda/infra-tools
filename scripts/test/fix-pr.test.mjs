@@ -19,6 +19,8 @@ test('a failing version opens a fix PR with the failing step, a log excerpt and 
   assert.equal(open.action, 'open');
   assert.equal(open.branch, 'tool-build/java-21.0.13-5');
   assert.equal(open.title, 'fix(java): build 21.0.13+5');
+  // The empty start commit has a type release-please hides, so that it cuts no release should it land on main.
+  assert.equal(open.commitMessage, 'chore(java): start the fix PR of 21.0.13+5');
   assert.match(open.body, /^The reconciler could not build or test java 21\.0\.13\+5\.$/m);
   assert.match(open.body, /^\*\*Failing step\*\*: `build`, in \[this reconciler run\]\(https:\/\/github\.com\/camunda\/infra-tools\/actions\/runs\/1\)$/m);
   assert.ok(open.body.includes(`\`\`\`text\n${downloadFailed('21.0.13+5')}\n\`\`\``));
