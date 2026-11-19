@@ -38,8 +38,11 @@ jobs:
         cache: npm
         cache-dependency-path: scripts/package-lock.json
 
+    - name: Install dependencies
+      run: npm ci --prefix scripts
+
     - name: Run tests
-      run: make test
+      run: npm test --prefix scripts
 
   # Pull request checks (spec §5.4): plan the tools the PR changes, warn about revisions, comment the release notes preview.
   # Read only: nothing is pushed or published.
@@ -72,7 +75,7 @@ jobs:
         cache-dependency-path: scripts/package-lock.json
 
     - name: Install dependencies
-      run: make install
+      run: npm ci --prefix scripts
 
     - name: Check the pull request
       id: check
@@ -112,7 +115,7 @@ jobs:
         cache-dependency-path: scripts/package-lock.json
 
     - name: Install dependencies
-      run: make install
+      run: npm ci --prefix scripts
 
     - name: Set up QEMU
       uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0

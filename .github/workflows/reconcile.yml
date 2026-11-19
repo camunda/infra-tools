@@ -61,7 +61,7 @@ jobs:
 
     - name: Install dependencies
       if: steps.guard.outputs.superseded == 'false'
-      run: make install
+      run: npm ci --prefix scripts
 
     # Fails on an upstream or registry outage, and when a catalog version lost its tag.
     - name: Plan the tool versions to publish
@@ -108,7 +108,7 @@ jobs:
 
     - name: Install dependencies
       if: steps.guard.outputs.superseded == 'false'
-      run: make install
+      run: npm ci --prefix scripts
 
     - name: Set up QEMU
       if: steps.guard.outputs.superseded == 'false'
@@ -179,7 +179,7 @@ jobs:
 
     - name: Install dependencies
       if: steps.guard.outputs.superseded == 'false'
-      run: make install
+      run: npm ci --prefix scripts
 
     - name: Record the published tool versions
       if: steps.guard.outputs.superseded == 'false'
