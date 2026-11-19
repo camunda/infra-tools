@@ -74,6 +74,12 @@ before(async () => {
   registry.addIndex('test-tools', entries);
   // An index whose maven 3.9.16 is on linux/amd64 only.
   registry.addIndex('amd64-only-tools', entries.filter((e) => !(e.version === '3.9.16' && e.platform === 'linux/arm64')));
+  // An index whose maven 3.9.16 layer on linux/amd64 matches its digest but is not a tarball.
+  const broken = Buffer.from('not a tarball');
+  registry.addIndex(
+    'broken-tools',
+    entries.map((e) => (e.version === '3.9.16' && e.platform === 'linux/amd64' ? { ...e, digest: registry.addBlob(broken), size: broken.length } : e)),
+  );
 });
 
 after(async () => {
@@ -81,7 +87,15 @@ after(async () => {
   await rm(work, { recursive: true, force: true });
 });
 
-const digestOf = (version, platform) => registry.indexEntries('test-tools').find((e) => e.tool === 'maven' && e.version === version && e.platform === platform).digest;
+// The test-tools index entry of a tool version on a platform.
+const indexEntry = (tool, version, platform) => registry.indexEntries('test-tools').find((e) => e.tool === tool && e.version === version && e.platform === platform);
+const digestOf = (version, platform) => indexEntry('maven', version, platform).digest;
+
+// maven 3.9.16, present in the tool cache of an amd64 runner.
+async function presentMaven() {
+  await mkdir(toolCache('maven/3.9.16/x64/bin'), { recursive: true });
+  await writeFile(toolCache('maven/3.9.16/x64.complete'), '');
+}
 
 let runner;
 beforeEach(async () => {
@@ -224,8 +238,7 @@ test('each tool gets one log line with its version, size, duration, speed and so
 });
 
 test('a present tool makes no network call, even with an unreachable index', async () => {
-  await mkdir(toolCache('maven/3.9.16/x64/bin'), { recursive: true });
-  await writeFile(toolCache('maven/3.9.16/x64.complete'), '');
+  await presentMaven();
   const result = await action({ tools: 'maven@3', env: { INDEX: '127.0.0.1:1/camunda/infra-tools:none' } });
   assert.equal(result.status, 0, result.log);
   assert.deepEqual(registry.requests, []);
@@ -305,12 +318,13 @@ test('an arm64 runner installs the arm64 layer into its arch folder', async () =
 });
 
 // macOS runners run the action with their bash 3.2 (/bin/bash on macOS; bash 5 elsewhere).
-test('a non-Linux runner installs nothing and succeeds', async () => {
+test('a non-Linux runner installs nothing, writes no install figures and succeeds', async () => {
   const result = await action({ tools: 'maven@3', env: { RUNNER_OS: 'macOS' }, bash: '/bin/bash' });
   assert.equal(result.status, 0, result.log);
   assert.equal(result.outputs.versions, '{}');
   assert.match(result.log, /::notice::infra-tools: macOS runners are not supported, nothing installed/);
   assert.deepEqual(registry.requests, []);
+  assert.deepEqual(await readdir(join(runner, 'temp')), []);
 });
 
 test('no selected tool gives an empty versions output without a network call', async () => {
@@ -334,8 +348,7 @@ test('a missing tool cache folder is created', async () => {
 });
 
 test('summary: true adds a table of the selected tools to the job summary', async () => {
-  await mkdir(toolCache('maven/3.9.16/x64/bin'), { recursive: true });
-  await writeFile(toolCache('maven/3.9.16/x64.complete'), '');
+  await presentMaven();
   const result = await action({ tools: 'maven@3.9\nmaven@3.10', env: { SUMMARY: 'true' } });
   assert.equal(result.status, 0, result.log);
   const rows = result.summary.split('\n').filter((l) => l.startsWith('|'));
@@ -349,6 +362,112 @@ test('the job summary is left alone by default', async () => {
   const result = await action({ tools: 'maven@3.9' });
   assert.equal(result.status, 0, result.log);
   assert.equal(result.summary, '');
+});
+
+// The install figures the action appended for submit-build-status (spec §5.6, ADR 0010), one object per line.
+const figuresFile = () => join(runner, 'temp/ci-analytics/tool-installs.jsonl');
+async function figures() {
+  if (!existsSync(figuresFile())) return [];
+  return (await readFile(figuresFile(), 'utf8')).split('\n').filter(Boolean).map((line) => JSON.parse(line));
+}
+const layerSize = (tool, version, platform = 'linux/amd64') => indexEntry(tool, version, platform).size;
+// The release and platform of every line written from the test-tools index on an amd64 runner.
+const testTools = { release: 'test-tools', platform: 'linux/amd64' };
+
+test('install figures: one line per selected tool, present or installed, with the release and platform', async () => {
+  await presentMaven();
+  const result = await action({ tools: 'maven@3.9\nmaven@3.10', toolCacheTools: 'java@21' });
+  assert.equal(result.status, 0, result.log);
+  const [present, maven, java, ...rest] = await figures();
+  assert.deepEqual(rest, []);
+  assert.deepEqual(present, { tool: 'maven', selector: 'maven@3.9', version: '3.9.16', outcome: 'present', ...testTools });
+  assert.deepEqual(Object.keys(maven), ['tool', 'selector', 'version', 'outcome', 'size_bytes', 'duration_ms', 'registry', 'release', 'platform']);
+  assert.ok(Number.isInteger(maven.duration_ms) && maven.duration_ms >= 0, `duration_ms: ${maven.duration_ms}`);
+  assert.deepEqual(
+    { ...maven, duration_ms: 0 },
+    { tool: 'maven', selector: 'maven@3.10', version: '3.10.1', outcome: 'installed', size_bytes: layerSize('maven', '3.10.1'), duration_ms: 0, registry: registry.host, ...testTools },
+  );
+  assert.equal(java.selector, 'java@21');
+  assert.equal(java.version, '21.0.12+101.0.LTS');
+  assert.equal(java.outcome, 'installed');
+});
+
+test('install figures: a second run in the same job appends its lines', async () => {
+  await action({ tools: 'maven@3.9' });
+  const result = await action({ tools: 'maven@3.9' });
+  assert.equal(result.status, 0, result.log);
+  assert.deepEqual(
+    (await figures()).map(({ selector, outcome }) => ({ selector, outcome })),
+    [
+      { selector: 'maven@3.9', outcome: 'installed' },
+      { selector: 'maven@3.9', outcome: 'present' },
+    ],
+  );
+});
+
+test('install figures: a login failure writes a failed line, without version, for each tool to install', async () => {
+  await presentMaven();
+  const result = await action({ tools: 'maven@3.9\nmaven@3.10', toolCacheTools: 'java@21', env: { TOKEN: 'wrong' } });
+  assert.notEqual(result.status, 0);
+  const failed = { outcome: 'failed', error: 'login', ...testTools };
+  assert.deepEqual(await figures(), [
+    { tool: 'maven', selector: 'maven@3.9', version: '3.9.16', outcome: 'present', ...testTools },
+    { tool: 'maven', selector: 'maven@3.10', ...failed },
+    { tool: 'java', selector: 'java@21', ...failed },
+  ]);
+});
+
+test('install figures: an index that cannot be read writes a failed line, without version, for each tool to install', async () => {
+  const result = await action({ tools: 'maven@3.9', env: { INDEX: `${registry.host}/${REPOSITORY}:missing-tools` } });
+  assert.notEqual(result.status, 0);
+  assert.deepEqual(await figures(), [{ tool: 'maven', selector: 'maven@3.9', outcome: 'failed', error: 'index', ...testTools, release: 'missing-tools' }]);
+});
+
+test('install figures: a selector matching no version writes a failed index line, after the lines already written', async () => {
+  const result = await action({ tools: 'maven@3.10\nmaven@3.1' });
+  assert.notEqual(result.status, 0);
+  const [installed, failed, ...rest] = await figures();
+  assert.deepEqual(rest, []);
+  assert.equal(installed.outcome, 'installed');
+  assert.deepEqual(failed, { tool: 'maven', selector: 'maven@3.1', outcome: 'failed', error: 'index', ...testTools });
+});
+
+test('install figures: a layer that cannot be downloaded writes a failed pull line with its version', async () => {
+  const digest = digestOf('3.9.16', 'linux/amd64');
+  registry.corrupt.add(digest);
+  try {
+    const result = await action({ tools: 'maven@3.9' });
+    assert.notEqual(result.status, 0);
+    assert.deepEqual(await figures(), [{ tool: 'maven', selector: 'maven@3.9', version: '3.9.16', outcome: 'failed', error: 'pull', ...testTools }]);
+  } finally {
+    registry.corrupt.clear();
+  }
+});
+
+test('install figures: a layer that cannot be extracted writes a failed extract line with its version', async () => {
+  const result = await action({ tools: 'maven@3.9', env: { INDEX: `${registry.host}/${REPOSITORY}:broken-tools` } });
+  assert.notEqual(result.status, 0);
+  assert.match(result.log, /::error::infra-tools: maven: cannot extract layer sha256:/);
+  assert.ok(!existsSync(toolCache('maven/3.9.16/x64.complete')));
+  assert.deepEqual(await figures(), [{ tool: 'maven', selector: 'maven@3.9', version: '3.9.16', outcome: 'failed', error: 'extract', ...testTools, release: 'broken-tools' }]);
+});
+
+test('install figures: a file that cannot be written is a warning, and the tools are still installed', async () => {
+  // A file where the figures folder should be.
+  await writeFile(join(runner, 'temp/ci-analytics'), '');
+  const result = await action({ tools: 'maven@3.9\nmaven@3.10' });
+  assert.equal(result.status, 0, result.log);
+  assert.deepEqual(JSON.parse(result.outputs.versions), { maven: '3.10.1' });
+  const warnings = result.log.split('\n').filter((l) => l.startsWith('::warning::'));
+  assert.deepEqual(warnings, [`::warning::infra-tools: cannot write the install figures to ${figuresFile()}`]);
+});
+
+test('install figures: a file that cannot be written does not hide the install failure', async () => {
+  await writeFile(join(runner, 'temp/ci-analytics'), '');
+  const result = await action({ tools: 'maven@3.1' });
+  assert.equal(result.status, 1);
+  assert.match(result.log, /::warning::infra-tools: cannot write the install figures/);
+  assert.match(result.log, /^::error::infra-tools: maven@3\.1 matches no version in /m);
 });
 
 // A file of the repository the action runs in (GITHUB_WORKSPACE).
