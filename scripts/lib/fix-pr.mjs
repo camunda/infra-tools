@@ -56,6 +56,9 @@ function codeBlock(excerpt) {
 }
 
 const title = (pr) => `fix(${pr.tool}): build ${Object.keys(pr.versions).join(', ')}`;
+// The empty commit a fix PR starts from: a chore, a type release-please leaves out of the changelog, so that it cuts no release
+// should it land on main (rebase merge).
+const commitMessage = (pr) => `chore(${pr.tool}): start the fix PR of ${Object.keys(pr.versions).join(', ')}`;
 
 // The body of a fix PR, with the failure that last changed it.
 function body(pr, failure, runUrl) {
@@ -80,7 +83,8 @@ function body(pr, failure, runUrl) {
 // A failure joins the open fix PR of the same tool and major failing with the same error, or opens one; a fix PR version that
 // fails again changes it only when its error changed. Returns the changes to make, in order:
 // - { action: 'comment', number, body }: the new error of a fix PR version;
-// - { action: 'open', branch, title, body }: a fix PR to open from an empty commit on the base branch, labeled FIX_PR_LABEL;
+// - { action: 'open', branch, title, body, commitMessage }: a fix PR to open from an empty commit (commitMessage) on the base
+//   branch, labeled FIX_PR_LABEL;
 // - { action: 'update', number, title, body }: an open fix PR a failure joined, or whose error changed;
 // - { action: 'close', number, comment, body }: an open fix PR none of whose versions is left to publish, to close with that
 //   comment and that body, marked resolved.
@@ -112,7 +116,7 @@ export function fixPrChanges({ failures, pullRequests, plans, runUrl }) {
   const changes = openFixPrs.flatMap((pr) => {
     if (pr.failure) {
       const change = { title: title(pr), body: body(pr, pr.failure, runUrl) };
-      return [pr.number ? { action: 'update', number: pr.number, ...change } : { action: 'open', branch: pr.branch, ...change }];
+      return [pr.number ? { action: 'update', number: pr.number, ...change } : { action: 'open', branch: pr.branch, ...change, commitMessage: commitMessage(pr) }];
     }
     // Every version published (it builds again), or no longer published by its line (skipped, or no longer planned at all).
     const versionPlans = Object.keys(pr.versions).map((version) => [version, planned(pr.tool, version)]);

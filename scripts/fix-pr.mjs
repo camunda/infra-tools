@@ -54,7 +54,7 @@ const { plans } = await planEveryTool(new Registry(values.image), { fixPrs: trac
 const changes = fixPrChanges({ failures, pullRequests, plans, runUrl: values['run-url'] });
 for (const change of changes) {
   if (change.action === 'open') {
-    emptyCommitBranch(change.branch, change.title);
+    emptyCommitBranch(change.branch, change.commitMessage);
     const { number, html_url: url } = api('POST', 'pulls', { title: change.title, head: change.branch, base: values.base, body: change.body });
     api('POST', `issues/${number}/labels`, { labels: [FIX_PR_LABEL] });
     console.log(`${change.title}: opened ${url}`);
