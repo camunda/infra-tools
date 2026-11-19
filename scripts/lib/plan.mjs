@@ -4,8 +4,11 @@ import { renovateLookup, versioningFor } from './renovate.mjs';
 import { archFolder, lineFor, parseDuration, PLATFORMS, revisionOf } from './tool-definition.mjs';
 import { compareVersions, sortVersions, tagFor } from './versions.mjs';
 
-// lookup: Renovate's getPkgReleases or a stand-in.
-export async function planTool(tool, { lookup = renovateLookup, tagExists, now = Date.now() }) {
+// lookup: Renovate's getPkgReleases or a stand-in. fixPrs: the fix PR tracking each version of the tool, by version ({ number,
+// state: 'open' or 'closed' without merge }, lib/fix-pr.mjs trackedVersions). An unpublished version with an open fix PR is
+// planned again, so the fix PR closes once it builds (its fixPr is set: it is tracked, never a gap); one whose fix PR was
+// closed without merge is ignored.
+export async function planTool(tool, { lookup = renovateLookup, tagExists, now = Date.now(), fixPrs = new Map() }) {
   const scheme = await versioningFor(tool.source);
   const { upstream, link } = await upstreamVersions(tool, lookup);
   const pinned = Object.values(tool.publish.lines).flatMap((line) => [...(line.versions ?? []), ...Object.keys(line.revisions ?? {})]);
@@ -30,7 +33,10 @@ export async function planTool(tool, { lookup = renovateLookup, tagExists, now =
     }
     const revision = revisionOf(tool, version);
     const tag = tagFor(tool.name, version, revision);
+    const fixPr = fixPrs.get(version);
     if (await tagExists(tag)) versions.push({ version, decision: 'skip', reason: 'published' });
+    else if (fixPr?.state === 'closed') versions.push({ version, decision: 'skip', reason: `ignored: fix PR #${fixPr.number} closed without merge` });
+    else if (fixPr) versions.push({ version, decision, reason: `${reason}, retried: fix PR #${fixPr.number}`, line: line.key, revision, tag, fixPr: fixPr.number });
     else versions.push({ version, decision, reason, line: line.key, revision, tag });
   }
   return { tool: tool.name, versions, upstream: link };

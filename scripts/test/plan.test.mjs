@@ -167,3 +167,21 @@ test('the plan links the upstream project, its source repository first, for the 
   assert.equal((await plan({ homepage: 'https://adoptium.net' })).upstream, 'https://adoptium.net');
   assert.equal((await plan({})).upstream, null);
 });
+
+test('a version with an open fix PR is retried; one whose fix PR was closed without merge is ignored', async () => {
+  const fixPrs = new Map([
+    ['27.0.0+35', { number: 7, state: 'open' }],
+    ['27.0.1+2', { number: 8, state: 'closed' }],
+    ['27.0.2+1', { number: 9, state: 'open' }],
+  ]);
+  const tagExists = async (tag) => tag === 'java-27.0.2-1-r1';
+  const plan = await planTool(java({ '*': { from: '27.0.0' } }), { lookup: upstream(['27.0.0+35', '27.0.1+2', '27.0.2+1', '27.0.3+4']), tagExists, now, fixPrs });
+  assert.deepEqual(decisions(plan), [
+    '27.0.0+35: publish (new, retried: fix PR #7)',
+    '27.0.1+2: skip (ignored: fix PR #8 closed without merge)',
+    '27.0.2+1: skip (published)',
+    '27.0.3+4: publish (new)',
+  ]);
+  assert.equal(plan.versions[0].fixPr, 7);
+  assert.equal(plan.versions[3].fixPr, undefined);
+});
