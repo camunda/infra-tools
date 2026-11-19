@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { failureSummary, fixPrChanges, logExcerpt, trackedVersions } from '../lib/fix-pr.mjs';
+import { failureSummary, fixPrChanges, logExcerpt, openFixPr, trackedVersions } from '../lib/fix-pr.mjs';
 
 const runUrl = 'https://github.com/camunda/infra-tools/actions/runs/1';
 
@@ -125,4 +125,40 @@ test('a fix PR version failing again changes nothing, unless its error changed: 
   // The new error is recorded: the next failure with it changes nothing.
   const updated = [{ ...pullRequests[0], body: changes[1].body }];
   assert.deepEqual(fixPrChanges({ failures: [failure('21.0.14+7', { step: 'test', excerpt: testFailed })], pullRequests: updated, plans: tracked, runUrl }), []);
+});
+
+// The GitHub API openFixPr uses, recording its calls; openPr: the open PR of the branch, if any.
+function fakeGithub(openPr = null) {
+  const calls = [];
+  const github = {
+    openPullRequest: async (branch) => (calls.push(['openPullRequest', branch]), openPr),
+    resetBranch: async (branch, message) => calls.push(['resetBranch', branch, message]),
+    createPullRequest: async (pr) => (calls.push(['createPullRequest', pr]), { number: 7, url: 'https://github.com/camunda/infra-tools/pull/7' }),
+    addLabel: async (number) => calls.push(['addLabel', number]),
+    updatePullRequest: async (number, pr) => calls.push(['updatePullRequest', number, pr]),
+  };
+  return { github, calls };
+}
+
+test('a fix PR opens from an empty commit on its branch, labelled', async () => {
+  const [open] = fixPrChanges({ failures: [failure('21.0.13+5')], pullRequests: [], plans: plans('java', { '21.0.13+5': toPublish }), runUrl });
+  const { github, calls } = fakeGithub();
+  assert.equal(await openFixPr(github, open), 'opened https://github.com/camunda/infra-tools/pull/7');
+  assert.deepEqual(calls, [
+    ['openPullRequest', 'tool-build/java-21.0.13-5'],
+    ['resetBranch', 'tool-build/java-21.0.13-5', open.commitMessage],
+    ['createPullRequest', { title: open.title, head: 'tool-build/java-21.0.13-5', body: open.body }],
+    ['addLabel', 7],
+  ]);
+});
+
+test('a fix PR opened without its label, as when labelling failed, gets it and is updated, its branch left alone', async () => {
+  const [open] = fixPrChanges({ failures: [failure('21.0.13+5')], pullRequests: [], plans: plans('java', { '21.0.13+5': toPublish }), runUrl });
+  const { github, calls } = fakeGithub({ number: 6, url: 'https://github.com/camunda/infra-tools/pull/6' });
+  assert.equal(await openFixPr(github, open), 'labelled and updated https://github.com/camunda/infra-tools/pull/6');
+  assert.deepEqual(calls, [
+    ['openPullRequest', 'tool-build/java-21.0.13-5'],
+    ['addLabel', 6],
+    ['updatePullRequest', 6, { title: open.title, body: open.body }],
+  ]);
 });
