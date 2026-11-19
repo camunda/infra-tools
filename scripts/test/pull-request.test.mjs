@@ -96,13 +96,7 @@ test('a PR changing the build files of published versions without a revision bum
 test('a published version out of every line, even delisted upstream, still gets its warning and its latest-per-major dry run', async () => {
   // Line 17 was removed, and 17.0.18+8 is no longer listed upstream: consumers can still install it until it is retired.
   const tool = java({ 21: { from: '21.0.13' } });
-  const catalogs = {
-    java: [
-      { ...catalogEntry(tool, '17.0.17+10', 1, '17'), retired: true },
-      catalogEntry(tool, '17.0.18+8', 2, '17'),
-      catalogEntry(tool, '21.0.13+5', 1, '21'),
-    ],
-  };
+  const catalogs = { java: [catalogEntry(tool, '17.0.18+8', 2, '17'), catalogEntry(tool, '21.0.13+5', 1, '21')] };
   const result = await check({
     tools: [tool],
     changedFiles: ['tools/java/install.sh'],
@@ -127,6 +121,27 @@ test('a published version out of every line, even delisted upstream, still gets 
   });
   assert.deepEqual(builds(retiring), ['java 21.0.13+5 java-21.0.13-5-r1 (latest published of major 21)']);
   assert.match(retiring.warnings[0], /: 21\.0\.13\+5 \(java-21\.0\.13-5-r1\)$/);
+});
+
+test('a version the PR restores gets its warning and its latest-per-major dry run, like the release notes preview', async () => {
+  // 17.0.18+8 is retired in the catalog; the PR removes it from its line's retired, which the reconciler records as a restore.
+  const base = java({ 17: { retired: ['17.0.18+8'] }, 21: { from: '21.0.13' } });
+  const catalogs = { java: [{ ...catalogEntry(base, '17.0.18+8', 1, '17'), retired: true }, catalogEntry(base, '21.0.13+5', 1, '21')] };
+  const result = await check({
+    tools: [java({ 21: { from: '21.0.13' } })],
+    baseTools: { java: base },
+    changedFiles: ['tools/java/tool.json', 'tools/java/install.sh'],
+    catalogs,
+    plan: { lookup: upstreamOf({ 'java-version': ['21.0.13+5'] }), tagExists: tagsIn('java-17.0.18-8-r1', 'java-21.0.13-5-r1') },
+  });
+  assert.deepEqual(result.warnings, [
+    'java: tools/java/install.sh changed, but these published versions keep their tool image unless their revision is bumped: 17.0.18+8 (java-17.0.18-8-r1), 21.0.13+5 (java-21.0.13-5-r1)',
+  ]);
+  assert.deepEqual(builds(result), [
+    'java 17.0.18+8 java-17.0.18-8-r1 (latest published of major 17)',
+    'java 21.0.13+5 java-21.0.13-5-r1 (latest published of major 21)',
+  ]);
+  assert.match(result.notes, /17\.0\.18\+8/);
 });
 
 // Index entries of one published tool version, as the previous release's index holds them.
