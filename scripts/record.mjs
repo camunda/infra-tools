@@ -1,6 +1,7 @@
 // Usage: node record.mjs --image <registry>/<repository> [--out <dir>]
 // Reconciler record (spec §5.3, step 4), once the run's builds are pushed: plans every tool again against upstream and the
-// published tags in --image, and records every published version the catalog lacks (lib/reconcile.mjs recordRun). Writes
+// published tags in --image, and records every published version the catalog lacks (lib/reconcile.mjs recordRun). Run on the
+// latest main with tools/ restored at the run's commit (reconcile.yml): the tool definitions its builds used. Writes
 // published/<tool>.json, and in <out> (default build/out/reconcile): unreleased.json, the tool versions that need a tool
 // release (publish.mjs), and commit.txt, the record commit message, empty when nothing changed.
 import { mkdir, writeFile } from 'node:fs/promises';
