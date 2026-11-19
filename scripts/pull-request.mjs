@@ -15,7 +15,7 @@ import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pu
 import { readIndex } from './lib/publish-index.mjs';
 import { releasedVersion } from './lib/release.mjs';
 import { Registry, tagExists } from './lib/registry.mjs';
-import { ghApi, readCatalog, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
+import { ghApi, ghJson, readCatalog, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const { values } = parseArgs({
@@ -82,7 +82,7 @@ if (values.comment) {
   const update = previewCommentUpdate(comments, preview);
   if (update) {
     const path = update.id ? `issues/comments/${update.id}` : `issues/${values.comment}/comments`;
-    ghApi(JSON.stringify({ body: update.body }), '--method', update.id ? 'PATCH' : 'POST', `repos/${values.repository}/${path}`, '--input', '-');
+    ghJson(`repos/${values.repository}/${path}`, { method: update.id ? 'PATCH' : 'POST', body: { body: update.body } });
   }
   console.log(update ? `release notes preview comment ${update.id ? 'updated' : 'created'}` : 'release notes preview comment: none to post');
 }

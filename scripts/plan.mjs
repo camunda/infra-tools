@@ -8,16 +8,16 @@
 // PRs: fails when a version in range is neither published nor tracked; writes nothing.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { trackedVersions } from './lib/fix-pr.mjs';
+import { FIX_PR_LABEL, trackedVersions } from './lib/fix-pr.mjs';
 import { checkCatalogTags, checkCompleteness } from './lib/reconcile.mjs';
 import { planEveryTool, reconcilerOptions } from './lib/reconcile-scripts.mjs';
 import { Registry, tagExists } from './lib/registry.mjs';
-import { readFixPrs } from './lib/repository.mjs';
+import { readPullRequests } from './lib/repository.mjs';
 
 const values = reconcilerOptions('plan.mjs', { repository: '<owner>/<name>' }, ['check']);
 
 const registry = new Registry(values.image);
-const { tools, catalogs, plans } = await planEveryTool(registry, { fixPrs: trackedVersions(readFixPrs(values.repository)) });
+const { tools, catalogs, plans } = await planEveryTool(registry, { fixPrs: trackedVersions(readPullRequests(values.repository, FIX_PR_LABEL)) });
 await checkCatalogTags({ catalogs, tagExists: tagExists(registry) });
 
 for (const { name } of tools) {

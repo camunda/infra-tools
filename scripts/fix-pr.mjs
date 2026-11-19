@@ -11,7 +11,7 @@ import { parseArgs } from 'node:util';
 import { FIX_PR_LABEL, fixPrChanges, trackedVersions } from './lib/fix-pr.mjs';
 import { planEveryTool } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
-import { ghApi, readFixPrs } from './lib/repository.mjs';
+import { ghJson, readPullRequests } from './lib/repository.mjs';
 
 const { values } = parseArgs({
   options: { image: { type: 'string' }, repository: { type: 'string' }, failures: { type: 'string' }, 'run-url': { type: 'string' }, base: { type: 'string', default: 'main' } },
@@ -20,7 +20,7 @@ if (!values.image || !values.repository || !values.failures || !values['run-url'
   throw new Error('usage: node fix-pr.mjs --image <registry>/<repository> --repository <owner>/<name> --failures <dir> --run-url <url> [--base <branch>]');
 }
 const repo = `repos/${values.repository}`;
-const api = (method, path, body) => JSON.parse(ghApi(body ? JSON.stringify(body) : '', '--method', method, `${repo}/${path}`, ...(body ? ['--input', '-'] : [])) || 'null');
+const api = (method, path, body) => ghJson(`${repo}/${path}`, { method, body });
 
 // The failures of this run; the folder is missing when no build failed.
 async function readFailures(dir) {
@@ -49,7 +49,7 @@ function emptyCommitBranch(branch, message) {
 }
 
 const failures = await readFailures(values.failures);
-const pullRequests = readFixPrs(values.repository);
+const pullRequests = readPullRequests(values.repository, FIX_PR_LABEL);
 const { plans } = await planEveryTool(new Registry(values.image), { fixPrs: trackedVersions(pullRequests) });
 const changes = fixPrChanges({ failures, pullRequests, plans, runUrl: values['run-url'] });
 for (const change of changes) {
