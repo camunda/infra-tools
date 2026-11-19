@@ -138,8 +138,8 @@ export function trackedVersions(pulls) {
   for (const p of [...pulls].sort((a, b) => a.number - b.number)) {
     const marker = parseMarker(p.body);
     if (!marker || marker.resolved || !['OPEN', 'CLOSED'].includes(p.state)) continue;
-    const versions = (tracked[marker.tool] ??= new Map());
-    for (const version of Object.keys(marker.versions)) versions.set(version, { number: p.number, state: p.state === 'OPEN' ? 'open' : 'closed' });
+    const versions = (tracked[marker.tool] ??= {});
+    for (const version of Object.keys(marker.versions)) versions[version] = { number: p.number, state: p.state === 'OPEN' ? 'open' : 'closed' };
   }
   return tracked;
 }

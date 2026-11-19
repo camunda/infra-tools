@@ -79,7 +79,7 @@ test('open fix PRs track their versions; one closed without merge by a maintaine
   const [close] = fixPrChanges({ failures: [], pulls: [reconcilerClosed], plans: plans('java', { '25.0.4+2': { decision: 'skip', reason: 'published' } }), runUrl });
   const node = openedFixPr(6, failure('26.1.0', { tool: 'node' }));
   const tracked = trackedVersions([open, closed, merged, { ...reconcilerClosed, state: 'CLOSED', body: close.body }, node, { number: 7, state: 'CLOSED', body: 'A PR labeled by hand' }]);
-  assert.deepEqual(Object.fromEntries(Object.entries(tracked).map(([tool, versions]) => [tool, Object.fromEntries(versions)])), {
+  assert.deepEqual(tracked, {
     java: { '21.0.13+5': { number: 1, state: 'open' }, '21.0.14+7': { number: 1, state: 'open' }, '25.0.2+4': { number: 2, state: 'closed' } },
     node: { '26.1.0': { number: 6, state: 'open' } },
   });
