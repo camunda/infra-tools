@@ -143,7 +143,7 @@ test('the action tests install from the index of the latest release, or from the
 });
 
 test('every release without tools.json is left to publish, oldest first; tool releases and drafts are not releases', () => {
-  const release = (tag, assets = [], extra = {}) => ({ tag_name: tag, draft: false, assets: assets.map((name) => ({ name })), ...extra });
+  const release = (tag, assets = [], extra = {}) => ({ tag_name: tag, draft: false, assets: assets.map((name) => ({ name, state: 'uploaded' })), ...extra });
   const releases = [
     release('0.10.0'),
     release('java-21.0.12-8-r1', ['java.tar']),
@@ -154,6 +154,12 @@ test('every release without tools.json is left to publish, oldest first; tool re
   ];
   assert.deepEqual(unpublishedReleases(releases).map((r) => r.tag_name), ['0.2.0', '0.10.0']);
   assert.deepEqual(unpublishedReleases([release('0.9.0', ['tools.json'])]), []);
+});
+
+test('a release whose tools.json upload failed is left to publish', () => {
+  // A failed upload can leave the asset in the starter state, empty.
+  const release = { tag_name: '0.9.0', draft: false, assets: [{ name: 'tools.json', state: 'starter' }] };
+  assert.deepEqual(unpublishedReleases([release]).map((r) => r.tag_name), ['0.9.0']);
 });
 
 test('tools.json lists every tool version of the index per platform with its tag, layer digest and size', () => {

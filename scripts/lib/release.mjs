@@ -17,11 +17,12 @@ export function latestIndexTag(manifest) {
   return version ? `${version}-tools` : 'tracer-tools';
 }
 
-// The releases (X.Y.Z, not tool releases nor drafts) still to publish, oldest first: those without tools.json, which their
-// publication attaches last. releases: GitHub releases ({ tag_name, draft, assets: [{ name }] }).
+// The releases (X.Y.Z, not tool releases nor drafts) still to publish, oldest first: those without an uploaded tools.json, which
+// their publication attaches last; a failed upload can leave it in the starter state. releases: GitHub releases ({ tag_name,
+// draft, assets: [{ name, state }] }).
 export function unpublishedReleases(releases) {
   return releases
-    .filter((r) => /^\d+\.\d+\.\d+$/.test(r.tag_name) && !r.draft && !r.assets.some((a) => a.name === 'tools.json'))
+    .filter((r) => /^\d+\.\d+\.\d+$/.test(r.tag_name) && !r.draft && !r.assets.some((a) => a.name === 'tools.json' && a.state === 'uploaded'))
     .sort((a, b) => compareVersions(a.tag_name, b.tag_name));
 }
 
