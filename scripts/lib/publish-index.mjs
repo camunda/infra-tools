@@ -3,7 +3,7 @@
 import { buildTarget } from './build.mjs';
 import { mergeCatalog } from './catalog.mjs';
 import { indexEntries, ociIndex } from './oci-index.mjs';
-import { buildIndex } from './release.mjs';
+import { buildIndex, previousRelease } from './release.mjs';
 
 // registry: a Registry of the repository holding the tool images and the index. toolVersions: [{ tool, version }], with tool
 // a parsed tool definition. Returns the entries of the pushed index and its digest.
@@ -18,10 +18,31 @@ export async function publishIndex(registry, tag, toolVersions) {
     layers[target.tag] = await registry.toolImageLayers(target.tag);
   }
   const entries = buildIndex({ tools, catalogs, previousIndex: await readIndex(registry, tag), layers });
+  return { entries, digest: await pushIndex(registry, tag, entries) };
+}
+
+// Publishes the index of release `version` (spec §5.5): the previous release's index + the catalog entries of tools −
+// retired versions, pushed as <version>-tools. catalogs: the catalog entries of every tool, by name. Throws, pushing
+// nothing, when a catalog version lost its tag. Returns the entries of the pushed index, its digest, and the previous release
+// (previousVersion, none for the first release) and its index entries (before).
+export async function publishRelease(registry, version, { tools, catalogs }) {
+  const previousVersion = previousRelease(await registry.tags(), version);
+  const before = previousVersion ? await readIndex(registry, `${previousVersion}-tools`) : [];
+  const layers = {};
+  for (const tool of tools) {
+    for (const e of catalogs[tool.name] ?? []) {
+      if (!e.retired && (await registry.exists(e.tag))) layers[e.tag] = await registry.toolImageLayers(e.tag);
+    }
+  }
+  const entries = buildIndex({ tools, catalogs, previousIndex: before, layers });
+  return { entries, digest: await pushIndex(registry, `${version}-tools`, entries), previousVersion, before };
+}
+
+async function pushIndex(registry, tag, entries) {
   const { index, manifests } = ociIndex(entries);
   await registry.ensureBlob(Buffer.from('{}'));
   for (const manifest of Object.values(manifests)) await registry.putManifest(manifest);
-  return { entries, digest: await registry.putManifest(index, tag) };
+  return registry.putManifest(index, tag);
 }
 
 // The entries of the index at tag, [] when the tag is missing.

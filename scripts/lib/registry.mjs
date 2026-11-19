@@ -74,6 +74,18 @@ export class Registry {
     return res.status === 200;
   }
 
+  // Every tag of the repository, following the pages of the tag listing.
+  async tags() {
+    const tags = [];
+    for (let path = '/tags/list?n=1000'; path; ) {
+      const res = await this.request(path);
+      tags.push(...((await res.json()).tags ?? []));
+      const next = res.headers.get('link')?.match(/<([^>]+)>;\s*rel="next"/)?.[1];
+      path = next && new URL(next, `${this.base}/`).toString();
+    }
+    return tags;
+  }
+
   async manifest(reference) {
     const res = await this.request(`/manifests/${reference}`, { headers: { Accept: ACCEPT } });
     return res.json();
