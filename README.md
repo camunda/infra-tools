@@ -16,11 +16,15 @@ The [Reconcile](.github/workflows/reconcile.yml) workflow publishes every upstre
 gh workflow run reconcile.yml
 ```
 
-See what the next run would publish (reads upstream and the registry, with a token that can read the package):
+See what the next run would publish (reads upstream, the registry and the fix PRs, with a token that can read the package):
 
 ```sh
-GITHUB_TOKEN="$(gh auth token)" node scripts/plan.mjs --image ghcr.io/camunda/infra-tools
+GITHUB_TOKEN="$(gh auth token)" node scripts/plan.mjs --image ghcr.io/camunda/infra-tools --repository camunda/infra-tools
 ```
+
+### Fix a tool version that fails to build
+
+A version that fails to build or test gets a fix PR (label `tool-build`), opened by the Infra - Misc App, with the failing step, a log excerpt and the run link; a version of the same tool and major failing with the same error joins it. Push the fix to its branch, usually an `if version ≥ X` in `install.sh` or `test.sh`: merging publishes the version on the next run. Every run builds the version again until then: the reconciler comments when its error changes, and closes the fix PR once it builds. Closing a fix PR without merging ignores its versions. Any other reconciler failure, including a version in range neither published nor tracked, alerts `#infra-alerts`.
 
 ## Releases
 
