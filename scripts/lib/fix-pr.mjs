@@ -129,6 +129,28 @@ export function fixPrChanges({ failures, pullRequests, plans, runUrl }) {
   return [...comments, ...changes];
 }
 
+// Opens the fix PR of an 'open' change (fixPrChanges). Fix PRs are read by their label: one opened without it (labelling
+// failed) is found by its branch instead, then labelled and updated, its branch left alone, rather than opened twice.
+// github: the GitHub API of the repository:
+// - openPullRequest(branch): the open PR of the branch ({ number, url }), or null;
+// - resetBranch(branch, message): the branch on an empty commit (message) on top of the base branch;
+// - createPullRequest({ title, head, body }): the PR against the base branch ({ number, url });
+// - addLabel(number): FIX_PR_LABEL on the PR;
+// - updatePullRequest(number, { title, body }).
+// Returns what happened, to log.
+export async function openFixPr(github, { branch, title, body, commitMessage }) {
+  const existing = await github.openPullRequest(branch);
+  if (existing) {
+    await github.addLabel(existing.number);
+    await github.updatePullRequest(existing.number, { title, body });
+    return `labelled and updated ${existing.url}`;
+  }
+  await github.resetBranch(branch, commitMessage);
+  const { number, url } = await github.createPullRequest({ title, head: branch, body });
+  await github.addLabel(number);
+  return `opened ${url}`;
+}
+
 // The versions fix PRs track, by tool then version ({ number, state }, planTool's fixPrs): 'open' while their fix PR is open,
 // 'closed' once a maintainer closed it without merge (ignored). A merged fix PR, or one the reconciler closed, tracks nothing.
 // pullRequests: every fix PR, as fixPrChanges takes them.

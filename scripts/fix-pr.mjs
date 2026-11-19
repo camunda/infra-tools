@@ -8,7 +8,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { FIX_PR_LABEL, fixPrChanges, trackedVersions } from './lib/fix-pr.mjs';
+import { FIX_PR_LABEL, fixPrChanges, openFixPr, trackedVersions } from './lib/fix-pr.mjs';
 import { planEveryTool } from './lib/reconcile-scripts.mjs';
 import { Registry } from './lib/registry.mjs';
 import { ghJson, readPullRequests } from './lib/repository.mjs';
@@ -20,6 +20,7 @@ if (!values.image || !values.repository || !values.failures || !values['run-url'
   throw new Error('usage: node fix-pr.mjs --image <registry>/<repository> --repository <owner>/<name> --failures <dir> --run-url <url> [--base <branch>]');
 }
 const repo = `repos/${values.repository}`;
+const [owner] = values.repository.split('/');
 const api = (method, path, body) => ghJson(`${repo}/${path}`, { method, body });
 
 // The failures of this run; the folder is missing when no build failed.
@@ -48,16 +49,27 @@ function emptyCommitBranch(branch, message) {
   }
 }
 
+const github = {
+  openPullRequest: async (branch) => {
+    const [pr] = api('GET', `pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open`);
+    return pr ? { number: pr.number, url: pr.html_url } : null;
+  },
+  resetBranch: async (branch, message) => emptyCommitBranch(branch, message),
+  createPullRequest: async ({ title, head, body }) => {
+    const { number, html_url: url } = api('POST', 'pulls', { title, head, base: values.base, body });
+    return { number, url };
+  },
+  addLabel: async (number) => api('POST', `issues/${number}/labels`, { labels: [FIX_PR_LABEL] }),
+  updatePullRequest: async (number, { title, body }) => api('PATCH', `pulls/${number}`, { title, body }),
+};
+
 const failures = await readFailures(values.failures);
 const pullRequests = readPullRequests(values.repository, FIX_PR_LABEL);
 const { plans } = await planEveryTool(new Registry(values.image), { fixPrs: trackedVersions(pullRequests) });
 const changes = fixPrChanges({ failures, pullRequests, plans, runUrl: values['run-url'] });
 for (const change of changes) {
   if (change.action === 'open') {
-    emptyCommitBranch(change.branch, change.commitMessage);
-    const { number, html_url: url } = api('POST', 'pulls', { title: change.title, head: change.branch, base: values.base, body: change.body });
-    api('POST', `issues/${number}/labels`, { labels: [FIX_PR_LABEL] });
-    console.log(`${change.title}: opened ${url}`);
+    console.log(`${change.title}: ${await openFixPr(github, change)}`);
   } else if (change.action === 'update') {
     api('PATCH', `pulls/${change.number}`, { title: change.title, body: change.body });
     console.log(`${change.title}: updated #${change.number}`);
