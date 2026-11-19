@@ -27,23 +27,25 @@ jobs:
     outputs:
       index: ${{ steps.index.outputs.index }}
     steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    # No dependencies to install: index.mjs latest-index uses none.
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+
     - name: Find the index of the latest release
       id: index
       env:
         GH_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
         BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
-        IMAGE: ghcr.io/camunda/infra-tools
       run: |
-        manifest=.github/config/.release-please-manifest.json
-        if ! json="$(gh api -H 'Accept: application/vnd.github.raw+json' "repos/${REPOSITORY}/contents/${manifest}?ref=${BASE}" 2>"${RUNNER_TEMP}/error")"; then
-          grep -qF '(HTTP 404)' "${RUNNER_TEMP}/error" || { cat "${RUNNER_TEMP}/error"; exit 1; }
-          json='{}'
-        fi
-        # release-please's initial 0.0.0 is no release.
-        release="$(jq -r '."." // empty' <<<"${json}")"
-        if [[ -n "${release}" && "${release}" != 0.0.0 ]]; then index="${IMAGE}:${release}-tools"; else index="${IMAGE}:tracer-tools"; fi
-        echo "Action tests install from ${index}"
+        index="$(node scripts/index.mjs latest-index --image ghcr.io/camunda/infra-tools --repository "${REPOSITORY}" --ref "${BASE}")"
         echo "index=${index}" >>"${GITHUB_OUTPUT}"
 
   test:

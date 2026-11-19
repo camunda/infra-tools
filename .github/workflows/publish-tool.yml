@@ -67,4 +67,4 @@ jobs:
     - name: Add the tool image to the index
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      run: node scripts/index.mjs --index "${IMAGE}:${INDEX_TAG}" "${TOOL}@${VERSION}"
+      run: node scripts/index.mjs tracer --index "${IMAGE}:${INDEX_TAG}" "${TOOL}@${VERSION}"

@@ -1,57 +1,62 @@
-// Usage: node index.mjs --release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]
-//        node index.mjs --index <registry>/<repository>:<tag> <tool>@<version>...
-// With --release (spec §5.5), publishes the latest release, the version of the release-please manifest, once release-please
-// created it: pushes its index to --image (lib/publish-index.mjs publishRelease) from the tool definitions and the catalog at
-// its tag, appends the Added / Replaced / Retired tables to its notes and attaches tools.json, written to --out (default
-// build/out/release) first. tools.json is attached last: a release that has it is published, and is left alone; a run that
-// failed before is completed by the next one. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN) for the release.
-// With --index, adds the tool images of the given tool versions to the index at --index (lib/publish-index.mjs publishIndex)
-// and pushes it: the manual Publish tool workflow, until the first release.
+// Release indexes (spec §5.5), one command each:
+//
+// node index.mjs release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]
+//   Publishes the latest release, the version of the release-please manifest, once release-please created it: pushes its
+//   index to --image (lib/publish-index.mjs publishRelease) from the tool definitions and the catalog at its tag, appends the
+//   Added / Replaced / Retired tables to its notes and attaches tools.json, written to --out (default build/out/release)
+//   first. tools.json is attached last: a release that has it is published, and is left alone; a run that failed before is
+//   completed by the next one. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN).
+//
+// node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>
+//   Prints the index the action tests install from (lib/release.mjs latestIndexTag): the latest release's, from the
+//   release-please manifest at --ref, or the tracer index before the first release. Uses gh and its token.
+//
+// node index.mjs tracer --index <registry>/<repository>:<tag> <tool>@<version>...
+//   Until the first release, for the manual Publish tool workflow: adds the tool images of the given tool versions to the
+//   index at --index (lib/publish-index.mjs publishIndex) and pushes it.
 import { execFileSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { publishIndex, publishRelease } from './lib/publish-index.mjs';
 import { Registry } from './lib/registry.mjs';
-import { releaseBody, releasedVersion, releaseNotes, toolsJson } from './lib/release.mjs';
+import { latestIndexTag, releaseBody, releasedVersion, releaseNotes, toolsJson } from './lib/release.mjs';
 import { ghJson, readToolDefinition, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
-const { values, positionals } = parseArgs({
-  options: {
-    release: { type: 'boolean' },
-    image: { type: 'string' },
-    repository: { type: 'string' },
-    out: { type: 'string', default: join(ROOT, 'build/out/release') },
-    index: { type: 'string' },
-  },
-  allowPositionals: true,
-});
+const USAGE = {
+  release: 'node index.mjs release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]',
+  'latest-index': 'node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>',
+  tracer: 'node index.mjs tracer --index <registry>/<repository>:<tag> <tool>@<version>...',
+};
+const COMMANDS = { release: publishReleases, 'latest-index': printLatestIndex, tracer: addToTracerIndex };
 
-if (values.release) {
-  if (!values.image || !values.repository) throw new Error('usage: node index.mjs --release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]');
-  await release();
-} else {
-  const [repository, tag] = values.index?.split(/:(?=[^:/]+$)/) ?? [];
-  if (!tag || !positionals.length) throw new Error('usage: node index.mjs --index <registry>/<repository>:<tag> <tool>@<version>...');
-  const toolVersions = [];
-  for (const selector of positionals) {
-    const [name, version] = selector.split('@');
-    toolVersions.push({ tool: await readToolDefinition(name), version });
-  }
-  const { entries, digest } = await publishIndex(new Registry(repository), tag, toolVersions);
-  console.log(`pushed ${values.index}@${digest}: ${entries.length} tool layers`);
-  for (const e of entries) console.log(`  ${e.platform} ${e.tool} ${e.version} ${e.tag} ${e.digest}`);
+const [command, ...args] = process.argv.slice(2);
+if (!COMMANDS[command]) throw new Error(`usage:\n${Object.values(USAGE).join('\n')}`);
+await COMMANDS[command](args);
+
+// Options of a command, all strings; throws its usage when a required one is missing.
+function options(command, args, { required, defaults = {}, positionals = false }) {
+  const names = [...required, ...Object.keys(defaults)];
+  const parsed = parseArgs({ args, options: Object.fromEntries(names.map((name) => [name, { type: 'string', ...(name in defaults && { default: defaults[name] }) }])), allowPositionals: positionals });
+  if (required.some((name) => !parsed.values[name]) || (positionals && !parsed.positionals.length)) throw new Error(`usage: ${USAGE[command]}`);
+  return parsed;
 }
 
-async function release() {
-  const version = releasedVersion(await readFile(join(ROOT, RELEASE_MANIFEST), 'utf8'));
+async function publishReleases(args) {
+  const { values } = options('release', args, { required: ['image', 'repository'], defaults: { out: join(ROOT, 'build/out/release') } });
+  const version = releasedVersion(JSON.parse(await readFile(join(ROOT, RELEASE_MANIFEST), 'utf8')));
   if (!version) return console.log('no release yet: nothing to publish');
-  const repo = `repos/${values.repository}`;
-  const existing = ghJson(`${repo}/releases/tags/${version}`);
-  if (!existing) return console.log(`release ${version} not created yet: nothing to publish`);
-  if (existing.assets.some((a) => a.name === 'tools.json')) return console.log(`release ${version} already published: ${existing.html_url}`);
+  const release = ghJson(`repos/${values.repository}/releases/tags/${version}`);
+  if (!release) return console.log(`release ${version} not created yet: nothing to publish`);
+  if (release.assets.some((a) => a.name === 'tools.json')) return console.log(`release ${version} already published: ${release.html_url}`);
+  await publishOneRelease(release, values);
+}
 
+// Publishes one release (a GitHub release: { id, tag_name, body, html_url }).
+async function publishOneRelease(release, { image, repository, out }) {
+  const version = release.tag_name;
+  const repo = `repos/${repository}`;
   // The tool definitions and the catalog at the release tag: main may have moved since.
   const file = (path) => ghJson(`${repo}/contents/${path}?ref=${version}`, { accept: 'application/vnd.github.raw+json' });
   const names = ghJson(`${repo}/contents/tools?ref=${version}`)
@@ -60,13 +65,36 @@ async function release() {
   const tools = names.map((name) => parseToolDefinition(name, file(`tools/${name}/tool.json`)));
   const catalogs = Object.fromEntries(names.map((name) => [name, file(`published/${name}.json`) ?? []]));
 
-  const { entries, digest, previousVersion, before } = await publishRelease(new Registry(values.image), version, { tools, catalogs });
-  console.log(`pushed ${values.image}:${version}-tools@${digest}: ${entries.length} tool layers (previous release: ${previousVersion ?? 'none'})`);
-  const notes = releaseNotes({ version, previousVersion, repository: values.repository, before, after: entries });
-  ghJson(`${repo}/releases/${existing.id}`, { method: 'PATCH', body: { body: releaseBody(existing.body, notes) } });
-  await mkdir(values.out, { recursive: true });
-  const asset = join(values.out, 'tools.json');
-  await writeFile(asset, `${JSON.stringify(toolsJson({ version, image: values.image, entries }), null, 2)}\n`);
-  execFileSync('gh', ['release', 'upload', version, asset, '--repo', values.repository], { stdio: 'inherit' });
-  console.log(`release ${version} published: ${existing.html_url}\n\n${notes}`);
+  const { entries, digest, previousVersion, before } = await publishRelease(new Registry(image), version, { tools, catalogs });
+  console.log(`pushed ${image}:${version}-tools@${digest}: ${entries.length} tool layers (previous release: ${previousVersion ?? 'none'})`);
+  const notes = releaseNotes({ version, previousVersion, repository, before, after: entries });
+  ghJson(`${repo}/releases/${release.id}`, { method: 'PATCH', body: { body: releaseBody(release.body, notes) } });
+  await mkdir(out, { recursive: true });
+  const asset = join(out, 'tools.json');
+  await writeFile(asset, `${JSON.stringify(toolsJson({ version, image, entries }), null, 2)}\n`);
+  execFileSync('gh', ['release', 'upload', version, asset, '--repo', repository], { stdio: 'inherit' });
+  console.log(`release ${version} published: ${release.html_url}\n\n${notes}`);
+}
+
+function printLatestIndex(args) {
+  const { values } = options('latest-index', args, { required: ['image', 'repository', 'ref'] });
+  // null before the release-please manifest exists.
+  const manifest = ghJson(`repos/${values.repository}/contents/${RELEASE_MANIFEST}?ref=${values.ref}`, { accept: 'application/vnd.github.raw+json' });
+  const index = `${values.image}:${latestIndexTag(manifest)}`;
+  console.error(`Action tests install from ${index}`);
+  console.log(index);
+}
+
+async function addToTracerIndex(args) {
+  const { values, positionals } = options('tracer', args, { required: ['index'], positionals: true });
+  const [repository, tag] = values.index.split(/:(?=[^:/]+$)/);
+  if (!tag) throw new Error(`usage: ${USAGE.tracer}`);
+  const toolVersions = [];
+  for (const selector of positionals) {
+    const [name, version] = selector.split('@');
+    toolVersions.push({ tool: await readToolDefinition(name), version });
+  }
+  const { entries, digest } = await publishIndex(new Registry(repository), tag, toolVersions);
+  console.log(`pushed ${values.index}@${digest}: ${entries.length} tool layers`);
+  for (const e of entries) console.log(`  ${e.platform} ${e.tool} ${e.version} ${e.tag} ${e.digest}`);
 }

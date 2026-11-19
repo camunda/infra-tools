@@ -90,7 +90,7 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
-      run: node scripts/index.mjs --release --image "${IMAGE}" --repository "${REPOSITORY}"
+      run: node scripts/index.mjs release --image "${IMAGE}" --repository "${REPOSITORY}"
 
     - name: Report failure
       if: failure()
