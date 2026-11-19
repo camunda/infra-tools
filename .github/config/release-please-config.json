@@ -23,6 +23,7 @@
     ".": {
       "exclude-paths": [
         ".github",
+        ".lint",
         "build",
         "docs",
         "scripts",
