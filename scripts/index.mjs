@@ -6,8 +6,9 @@
 //   and its token (GH_TOKEN, else GITHUB_TOKEN) for GitHub, GITHUB_TOKEN for the registry.
 //
 // node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>
-//   Prints the index the action tests install from (lib/release.mjs latestIndexTag): the latest release's, from the
-//   release-please manifest at --ref, or the tracer index before the first release. Uses gh and its token.
+//   Prints the index the action tests install from (lib/release.mjs latestIndexTag): the latest published release's, up to
+//   the release-please manifest version at --ref, or the tracer index before the first one. Uses gh and its token, and
+//   GITHUB_TOKEN for the registry.
 //
 // node index.mjs tracer --index <registry>/<repository>:<tag> <tool>@<version>...
 //   Until the first release, for the manual Publish tool workflow: adds the tool images of the given tool versions to the
@@ -74,11 +75,11 @@ async function publishOneRelease(release, { image, repository, out }) {
   console.log(`release ${version} published: https://github.com/${repository}/releases/tag/${version}\n\n${notes}`);
 }
 
-function printLatestIndex(args) {
+async function printLatestIndex(args) {
   const { values } = options('latest-index', args, { required: ['image', 'repository', 'ref'] });
   // null before the release-please manifest exists.
   const manifest = ghJson(`repos/${values.repository}/contents/${RELEASE_MANIFEST}?ref=${values.ref}`, { accept: 'application/vnd.github.raw+json' });
-  const index = `${values.image}:${latestIndexTag(manifest)}`;
+  const index = `${values.image}:${latestIndexTag(manifest, await new Registry(values.image).tags())}`;
   console.error(`Action tests install from ${index}`);
   console.log(index);
 }

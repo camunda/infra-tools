@@ -15,7 +15,7 @@ import { parseArgs } from 'node:util';
 import { FIX_PR_LABEL, trackedVersions } from './lib/fix-pr.mjs';
 import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
-import { releasedVersion } from './lib/release.mjs';
+import { latestPublishedRelease } from './lib/release.mjs';
 import { Registry, tagExists } from './lib/registry.mjs';
 import { ghApi, ghJson, readCatalog, readPullRequests, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
@@ -49,17 +49,17 @@ for (const name of names) {
   baseTools[name] = parseToolDefinition(name, JSON.parse(json));
 }
 
-// The latest release is read at the base: a release PR already holds the next version, whose index exists only once it is merged.
+// The latest published release, up to the version of the manifest at the base: a release PR already holds the next version,
+// and a merged one until its index is pushed.
 let manifest;
 try {
   manifest = git('show', `${values.base}:${RELEASE_MANIFEST}`);
 } catch {
   // before the first release
 }
-const previousVersion = releasedVersion(manifest && JSON.parse(manifest));
 const registry = new Registry(values.image);
+const previousVersion = latestPublishedRelease(manifest && JSON.parse(manifest), await registry.tags());
 const previousTag = `${previousVersion}-tools`;
-if (previousVersion && !(await registry.exists(previousTag))) throw new Error(`${values.image}:${previousTag}: index of the latest release not found`);
 
 const { builds, warnings, notes } = await checkPullRequest({
   tools,
