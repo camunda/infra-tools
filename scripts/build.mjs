@@ -1,7 +1,10 @@
-// Usage: node build.mjs <tool> <version> [--push <registry>/<repository>] [--failure <file>]
-// Builds the tool image of one tool version into build/out/<tag> (an OCI layout) and runs its test.sh against it on every
-// platform (build/docker-bake.hcl). With --push, pushes that tested layout as <tag>, never over an existing tag. Without it (dry
-// run), a published version the tool definition no longer publishes is built too, from its catalog entry (lib/build.mjs).
+// Usage: node build.mjs <tool> <version> [--revision <n>] [--platforms <os/arch>,...] [--reuse <tag>]
+//          [--push <registry>/<repository>] [--failure <file>]
+// Builds the tool image of one tool version into build/out/<tag> (an OCI layout) and runs its test.sh against it on each
+// platform of --platforms, every platform by default (build/docker-bake.hcl). --revision: the plan's, the tool definition's by
+// default. With --push, pushes that tested layout as <tag>, never over an existing tag; with --reuse, its image index also
+// lists the other platforms of that published tool image, as they are (D62). Without --push (dry run), a published version the
+// tool definition no longer publishes is built too, from its catalog entry (lib/build.mjs).
 // With --failure, a build or test that fails is handed over to the fix PRs instead of failing (spec §5.3, step 5): its tool,
 // version, tag, failing step (build or test) and log excerpt are written to that file as JSON, and to the job summary
 // ($GITHUB_STEP_SUMMARY), and it exits successfully. A failed push still fails: it is no failure of the tool version.
@@ -14,22 +17,26 @@ import { failureSummary, logExcerpt } from './lib/fix-pr.mjs';
 import { pushOciLayout } from './lib/oci-layout.mjs';
 import { Registry } from './lib/registry.mjs';
 import { readCatalog, readToolDefinition, ROOT } from './lib/repository.mjs';
+import { PLATFORMS } from './lib/tool-definition.mjs';
 
-const { values, positionals } = parseArgs({ options: { push: { type: 'string' }, failure: { type: 'string' } }, allowPositionals: true });
+const options = { revision: { type: 'string' }, platforms: { type: 'string' }, reuse: { type: 'string' }, push: { type: 'string' }, failure: { type: 'string' } };
+const { values, positionals } = parseArgs({ options, allowPositionals: true });
 const [name, version] = positionals;
-if (!name || !version) throw new Error('usage: node build.mjs <tool> <version> [--push <registry>/<repository>] [--failure <file>]');
+if (!name || !version) throw new Error('usage: node build.mjs <tool> <version> [--revision <n>] [--platforms <os/arch>,...] [--reuse <tag>] [--push <registry>/<repository>] [--failure <file>]');
 const catalogEntry = values.push ? undefined : (await readCatalog(name)).find((e) => e.version === version);
-const target = buildTarget(await readToolDefinition(name), version, { catalogEntry });
+const revision = values.revision ? Number(values.revision) : undefined;
+const target = buildTarget(await readToolDefinition(name), version, { catalogEntry, revision });
+const platforms = values.platforms || PLATFORMS.join(',');
 const layout = join('build/out', target.tag);
 // The build commit, annotated on the tool image (build/docker-bake.hcl).
-const revision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
 
 // Keeps the end of a Bake output only, where its error is.
 const LOG_LENGTH = 1_000_000;
 
 // Runs a Bake target, its output streamed as it comes; returns the end of that output when it fails, null otherwise.
 async function bake(...args) {
-  const env = { ...process.env, ...target.args, LAYOUT: layout, REVISION: revision };
+  const env = { ...process.env, ...target.args, PLATFORMS: platforms, LAYOUT: layout, REVISION: commit };
   const child = spawn('docker', ['buildx', 'bake', '-f', 'build/docker-bake.hcl', '--progress=plain', ...args], { cwd: ROOT, env, stdio: ['ignore', 'pipe', 'pipe'] });
   let log = '';
   for (const [from, to] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
@@ -42,7 +49,7 @@ async function bake(...args) {
   return status === 0 ? null : log;
 }
 
-console.log(`${target.tool} ${target.version}: build and test (${target.tag})`);
+console.log(`${target.tool} ${target.version}: build and test on ${platforms} (${target.tag}${values.reuse ? `, other platforms from ${values.reuse}` : ''})`);
 await rm(join(ROOT, layout), { recursive: true, force: true });
 for (const [step, args] of [['build', ['--provenance=false', 'tool']], ['test', ['test']]]) {
   const log = await bake(...args);
@@ -56,6 +63,6 @@ for (const [step, args] of [['build', ['--provenance=false', 'tool']], ['test', 
   process.exit(0);
 }
 if (values.push) {
-  await pushOciLayout(new Registry(values.push), join(ROOT, layout), target.tag);
+  await pushOciLayout(new Registry(values.push), join(ROOT, layout), target.tag, { reuse: values.reuse });
   console.log(`${target.tool} ${target.version}: pushed ${values.push}:${target.tag}`);
 }

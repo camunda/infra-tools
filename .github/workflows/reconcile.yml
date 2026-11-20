@@ -131,9 +131,13 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
         TOOL: ${{ matrix.tool }}
         VERSION: ${{ matrix.version }}
+        REVISION: ${{ matrix.revision }}
         TAG: ${{ matrix.tag }}
+        PLATFORMS: ${{ matrix.platforms }}
+        REUSE: ${{ matrix.reuse }}
       run: |
-        node scripts/build.mjs "${TOOL}" "${VERSION}" --push "${IMAGE}" --failure "${OUT}/failures/${TAG}.json"
+        node scripts/build.mjs "${TOOL}" "${VERSION}" --revision "${REVISION}" --platforms "${PLATFORMS}" ${REUSE:+--reuse "${REUSE}"} \
+          --push "${IMAGE}" --failure "${OUT}/failures/${TAG}.json"
         if [[ -f "${OUT}/failures/${TAG}.json" ]]; then echo "failed=true" >>"${GITHUB_OUTPUT}"; fi
 
     - name: Upload the build failure

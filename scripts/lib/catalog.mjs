@@ -1,9 +1,10 @@
 // Catalog (published/<tool>.json): the record of every published tool version, written by the reconciler.
-import { isRetired } from './tool-definition.mjs';
+import { archOf, isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions, folderVersion } from './versions.mjs';
 
-// Merges published results ({ version, line, revision, tag }) and the tool's retirements into its catalog entries.
-// Returns the new entries and one conventional change per version for the record commit (spec §5.3, step 4).
+// Merges published results ({ version, line, revision, tag, platforms }) and the tool's retirements into its catalog entries.
+// An entry lists its platforms only when upstream lacks some (D62): none means every platform. Returns the new entries and one
+// conventional change per version for the record commit (spec §5.3, step 4): a revision that adds platforms publishes them.
 export function mergeCatalog(tool, entries, published, { now = new Date().toISOString() } = {}) {
   const merged = entries.map((e) => ({ ...e }));
   const changes = [];
@@ -15,15 +16,19 @@ export function mergeCatalog(tool, entries, published, { now = new Date().toISOS
       revision: result.revision,
       tag: result.tag,
       ...tool.install,
+      ...(result.platforms && result.platforms.length < PLATFORMS.length && { platforms: result.platforms }),
       publishedAt: now,
     };
+    const only = entry.platforms ? ` for ${entry.platforms.map(archOf).join(', ')}` : '';
     const i = merged.findIndex((e) => e.version === result.version);
     if (i < 0) {
       merged.push(entry);
-      changes.push({ type: 'feat', tool: tool.name, text: `publish ${result.version}` });
+      changes.push({ type: 'feat', tool: tool.name, text: `publish ${result.version}${only}` });
     } else if (result.revision > merged[i].revision) {
+      const added = (entry.platforms ?? PLATFORMS).filter((p) => !(merged[i].platforms ?? PLATFORMS).includes(p));
       merged[i] = entry;
-      changes.push({ type: 'fix', tool: tool.name, text: `republish ${result.version} (r${result.revision})` });
+      if (added.length) changes.push({ type: 'feat', tool: tool.name, text: `publish ${result.version} for ${added.map(archOf).join(', ')} (r${result.revision})` });
+      else changes.push({ type: 'fix', tool: tool.name, text: `republish ${result.version} (r${result.revision})` });
     }
   }
   // The retired flag follows the tool definition both ways: removing a version from retired restores it.

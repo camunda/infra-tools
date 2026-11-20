@@ -88,3 +88,41 @@ test('a tool image is never pushed over an existing tag', async () => {
   });
   assert.deepEqual(fake.manifest('maven-3.9.16-r2'), before);
 });
+
+// An OCI layout as Bake writes it for one platform: index.json → its image manifest, annotated with the build commit.
+async function writeOnePlatformLayout(dir) {
+  const blob = async (bytes) => {
+    await writeFile(join(dir, 'blobs/sha256', sha256(bytes).slice(7)), bytes);
+    return { digest: sha256(bytes), size: bytes.length };
+  };
+  await mkdir(join(dir, 'blobs/sha256'), { recursive: true });
+  const config = await blob(Buffer.from('{"architecture":"arm64","os":"linux"}'));
+  const layer = await blob(Buffer.from('maven 3.9.16 arm64 layer'));
+  const manifest = await blob(Buffer.from(JSON.stringify({
+    schemaVersion: 2,
+    mediaType: 'application/vnd.oci.image.manifest.v1+json',
+    config: { mediaType: 'application/vnd.oci.image.config.v1+json', ...config },
+    layers: [{ mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip', ...layer }],
+    annotations: { 'org.opencontainers.image.revision': 'abc123' },
+  }, null, 2)));
+  const descriptor = { mediaType: 'application/vnd.oci.image.manifest.v1+json', ...manifest, annotations: { 'org.opencontainers.image.ref.name': 'latest' }, platform: { architecture: 'arm64', os: 'linux' } };
+  await writeFile(join(dir, 'index.json'), JSON.stringify({ schemaVersion: 2, mediaType: 'application/vnd.oci.image.index.v1+json', manifests: [descriptor] }));
+  return { manifest: manifest.digest, layer: layer.digest };
+}
+
+test('a platform added to a published tool image is pushed with the other platforms reused as they are (D62)', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'infra-tools-layout-'));
+  try {
+    const built = await writeOnePlatformLayout(dir);
+    fake.addToolImage('maven-3.9.16-r1', { 'linux/amd64': Buffer.from('published amd64 layer') }, { 'org.opencontainers.image.revision': 'old' });
+    const reused = fake.manifest('maven-3.9.16-r1').manifests[0];
+    await pushOciLayout(registry, dir, 'maven-3.9.16-r2', { reuse: 'maven-3.9.16-r1' });
+    const index = fake.manifest('maven-3.9.16-r2');
+    assert.deepEqual(index.manifests.map((d) => [d.platform.architecture, d.digest]), [['amd64', reused.digest], ['arm64', built.manifest]]);
+    assert.deepEqual(index.annotations, { 'org.opencontainers.image.revision': 'abc123' }, 'the build commit of the platform built');
+    assert.equal((await registry.toolImageLayers('maven-3.9.16-r2'))['linux/arm64'].digest, built.layer);
+    assert.deepEqual(await registry.toolImagePlatforms('maven-3.9.16-r2'), ['linux/amd64', 'linux/arm64']);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

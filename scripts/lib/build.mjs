@@ -7,11 +7,12 @@ import { compareVersions, folderVersion, tagFor } from './versions.mjs';
 // catalogEntry: the version's catalog entry, for dry runs only (spec §5.4): a published version the tool definition no longer
 // publishes (fixed pin replaced, line stopped or removed, from raised) is still built, with its catalog line and revision,
 // unless the tool definition retires it: one it restores is built while the catalog still marks it retired (mergeCatalog).
-export function buildTarget(tool, version, { catalogEntry } = {}) {
+// revision: the plan's, which can be above the tool definition's once a platform was added (D62).
+export function buildTarget(tool, version, { catalogEntry, revision: planned } = {}) {
   const where = `tools/${tool.name}/tool.json`;
   const line = lineFor(tool, version);
   let key = line?.key;
-  let revision = revisionOf(tool, version);
+  let revision = planned ?? revisionOf(tool, version);
   const unpublished = unpublishedReason(tool, version, line);
   if (unpublished) {
     if (!catalogEntry || isRetired(tool, version)) throw new Error(`${where}: ${tool.name} ${version} ${unpublished}`);

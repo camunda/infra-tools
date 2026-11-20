@@ -95,3 +95,17 @@ test('a tool release is tagged on the build commit its tool image carries; a too
     message: 'maven-3.9.15-r1: its tool image has no build commit (org.opencontainers.image.revision annotation), so no tool release; bump the revision of maven 3.9.15 in tools/maven/tool.json to build it again with one',
   });
 });
+
+test('a tool release lists the platforms its tool image holds (D62)', () => {
+  const { body } = toolRelease({
+    tool: maven,
+    recorded: { tool: 'maven', version: '3.9.16', line: '3.9', revision: 1, tag: 'maven-3.9.16-r1', upstream: null },
+    layers: { 'linux/amd64': layers['linux/amd64'] },
+    digest: 'sha256:index',
+    image: 'ghcr.io/camunda/infra-tools',
+    repository: 'camunda/infra-tools',
+    commit: '0123456789abcdef0123456789abcdef01234567',
+  });
+  assert.match(body, /\| linux\/amd64 \|/);
+  assert.doesNotMatch(body, /linux\/arm64/);
+});

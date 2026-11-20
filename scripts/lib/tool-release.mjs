@@ -10,7 +10,7 @@ const MB = 1024 * 1024;
 // repository: owner/name; commit: the build commit. Returns the GitHub REST API fields of the release.
 export function toolRelease({ tool, recorded, layers, digest, image, repository, commit }) {
   const plain = isPlainTool(tool);
-  const rows = PLATFORMS.map((platform) => {
+  const rows = PLATFORMS.filter((platform) => layers[platform]).map((platform) => {
     const { digest: layer, size } = layers[platform];
     return `| ${platform} | \`${tool.install.cacheFolder}/${folderVersion(recorded.version)}/${archFolder(tool, platform)}\` | \`${layer}\` | ${(size / MB).toFixed(1)} MB |`;
   });

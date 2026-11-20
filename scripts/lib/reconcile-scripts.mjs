@@ -2,7 +2,6 @@
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { planTool } from './plan.mjs';
-import { tagExists } from './registry.mjs';
 import { readCatalog, readToolDefinition, readToolNames, ROOT } from './repository.mjs';
 
 // Options of a reconciler script: --image <registry>/<repository>, the script's own required options (e.g. { repository:
@@ -25,15 +24,17 @@ export function reconcilerOptions(script, required = {}, flags = []) {
 }
 
 // Every tool definition, and its catalog entries and its plan by tool name against upstream and the published tags in registry
-// (Registry). fixPrs: the versions fix PRs track, by tool (lib/fix-pr.mjs trackedVersions), none by default.
+// (Registry), which it returns too (a Set). fixPrs: the versions fix PRs track, by tool (lib/fix-pr.mjs trackedVersions), none
+// by default.
 export async function planEveryTool(registry, { fixPrs = {} } = {}) {
   const tools = await Promise.all((await readToolNames()).map(readToolDefinition));
-  const options = { tagExists: tagExists(registry), now: Date.now() };
+  const tags = new Set(await registry.tags());
+  const options = { tags, platformsOf: (tag) => registry.toolImagePlatforms(tag), now: Date.now() };
   const catalogs = {};
   const plans = {};
   for (const tool of tools) {
     catalogs[tool.name] = await readCatalog(tool.name);
     plans[tool.name] = await planTool(tool, { ...options, fixPrs: fixPrs[tool.name] });
   }
-  return { tools, catalogs, plans };
+  return { tools, catalogs, plans, tags };
 }

@@ -46,6 +46,11 @@ test('a build target writes build metadata as - and carries the revision of its 
   });
 });
 
+test('a build target takes the plan\'s revision, above its line\'s once a platform was added (D62)', () => {
+  const target = buildTarget(java, '21.0.12+8', { revision: 3 });
+  assert.deepEqual([target.revision, target.tag], [3, 'java-21.0.12-8-r3']);
+});
+
 test('only versions the tool definition publishes have a build target', () => {
   assert.throws(() => buildTarget(maven, '3.8.9'), { message: 'tools/maven/tool.json: maven 3.8.9 is in no version line' });
   assert.throws(() => buildTarget(maven, '3.9.15'), { message: 'tools/maven/tool.json: maven 3.9.15 is ignored in line 3.9' });
