@@ -1,5 +1,6 @@
 // Fake OCI registry for tests, over http on 127.0.0.1: bearer token exchange as on ghcr.io (pull, or pull and push), manifests by
 // tag or digest, tag listing (pageSize tags per page), blobs and blob uploads. Records every request.
+// With metadataToken, it also plays Artifact Registry and the GKE metadata server.
 import { createServer } from 'node:http';
 import { MEDIA_TYPES, sha256 } from '../lib/oci.mjs';
 import { indexEntries, ociIndex } from '../lib/oci-index.mjs';
@@ -17,17 +18,24 @@ const body = (req) =>
 export class FakeRegistry {
   requests = []; // "<method> <url>"
   failures = {}; // blob digest → number of 500 responses before serving it
+  rejected = new Set(); // manifest tags whose push answers 500
   corrupt = new Set(); // blob digests served with other bytes
   manifests = new Map(); // tag or digest → { mediaType, bytes }
   blobs = new Map(); // digest → bytes
   uploads = 0;
   pageSize = 100; // tags per page of the tag listing
 
+  constructor({ name = REPOSITORY, metadataToken, user = 'token' } = {}) {
+    this.name = name;
+    this.metadataToken = metadataToken;
+    this.user = user; // oauth2accesstoken on Artifact Registry
+  }
+
   async start() {
     this.server = createServer((req, res) => this.handle(req, res).catch((err) => res.writeHead(500).end(err.message)));
     await new Promise((resolve) => this.server.listen(0, '127.0.0.1', resolve));
     this.host = `127.0.0.1:${this.server.address().port}`;
-    this.repository = `${this.host}/${REPOSITORY}`;
+    this.repository = `${this.host}/${this.name}`;
   }
 
   stop() {
@@ -83,21 +91,25 @@ export class FakeRegistry {
   async handle(req, res) {
     this.requests.push(`${req.method} ${req.url}`);
     const url = new URL(req.url, `http://${this.host}`);
+    if (this.metadataToken && url.pathname === '/computeMetadata/v1/instance/service-accounts/default/token') {
+      if (req.headers['metadata-flavor'] !== 'Google') return res.writeHead(403).end();
+      return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ access_token: this.metadataToken, token_type: 'Bearer' }));
+    }
     if (url.pathname === '/token') {
-      const basic = `Basic ${Buffer.from(`token:${TOKEN}`).toString('base64')}`;
+      const basic = `Basic ${Buffer.from(`${this.user}:${TOKEN}`).toString('base64')}`;
       const scope = url.searchParams.get('scope')?.match(/^repository:(.+):(pull|pull,push)$/);
-      if (req.headers.authorization !== basic || scope?.[1] !== REPOSITORY) return res.writeHead(401).end();
+      if (req.headers.authorization !== basic || scope?.[1] !== this.name) return res.writeHead(401).end();
       return res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ token: `bearer-${scope[2]}` }));
     }
     const write = !['GET', 'HEAD'].includes(req.method);
-    const allowed = write ? ['Bearer bearer-pull,push'] : ['Bearer bearer-pull', 'Bearer bearer-pull,push'];
+    const allowed = write ? ['Bearer bearer-pull,push'] : ['Bearer bearer-pull', 'Bearer bearer-pull,push', ...(this.metadataToken ? [`Bearer ${this.metadataToken}`] : [])];
     if (!allowed.includes(req.headers.authorization)) {
-      const challenge = `Bearer realm="http://${this.host}/token",service="${this.host}",scope="repository:${REPOSITORY}:pull"`;
+      const challenge = `Bearer realm="http://${this.host}/token",service="${this.host}",scope="repository:${this.name}:pull"`;
       return res.writeHead(401, { 'WWW-Authenticate': challenge }).end();
     }
-    if (url.pathname === `/v2/${REPOSITORY}/tags/list`) return this.listTags(res, url);
+    if (url.pathname === `/v2/${this.name}/tags/list`) return this.listTags(res, url);
     const match = url.pathname.match(/^\/v2\/(.+?)\/(blobs\/uploads|manifests|blobs)\/(.*)$/);
-    if (!match || match[1] !== REPOSITORY) return res.writeHead(404).end();
+    if (!match || match[1] !== this.name) return res.writeHead(404).end();
     const [, , kind, reference] = match;
     if (kind === 'blobs/uploads') return this.upload(req, res, url, reference);
     if (kind === 'manifests') return this.serveManifest(req, res, reference);
@@ -111,13 +123,14 @@ export class FakeRegistry {
     const tags = [...this.manifests.keys()].filter((r) => !r.startsWith('sha256:')).sort().filter((t) => !last || t > last);
     const page = tags.slice(0, n);
     const headers = { 'Content-Type': 'application/json' };
-    if (tags.length > n) headers.Link = `</v2/${REPOSITORY}/tags/list?n=${n}&last=${encodeURIComponent(page.at(-1))}>; rel="next"`;
-    return res.writeHead(200, headers).end(JSON.stringify({ name: REPOSITORY, tags: page }));
+    if (tags.length > n) headers.Link = `</v2/${this.name}/tags/list?n=${n}&last=${encodeURIComponent(page.at(-1))}>; rel="next"`;
+    return res.writeHead(200, headers).end(JSON.stringify({ name: this.name, tags: page }));
   }
 
   async serveManifest(req, res, reference) {
     if (req.method === 'PUT') {
       const bytes = await body(req);
+      if (this.rejected.has(reference)) return res.writeHead(500).end();
       const mediaType = req.headers['content-type'];
       if (JSON.parse(bytes).mediaType !== mediaType) return res.writeHead(400).end('media type mismatch');
       const byDigest = reference.startsWith('sha256:');
@@ -146,7 +159,7 @@ export class FakeRegistry {
   async upload(req, res, url, id) {
     if (req.method === 'POST' && id === '') {
       this.uploads++;
-      return res.writeHead(202, { Location: `/v2/${REPOSITORY}/blobs/uploads/${this.uploads}` }).end();
+      return res.writeHead(202, { Location: `/v2/${this.name}/blobs/uploads/${this.uploads}` }).end();
     }
     if (req.method !== 'PUT' || !id) return res.writeHead(404).end();
     const bytes = await body(req);

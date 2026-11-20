@@ -80,37 +80,78 @@ selector_error() {
   fi
 }
 
-# Set by connect(): the index's registry host, its API base URL, the authorization header and the platform's index layers.
-registry="" api="" auth=() layers=""
+# INFRA_TOOLS_MIRROR, from the runner environment, replaces ghcr.io in the index (ADR 0007).
+mirror_index=""
+if [[ -n "${INFRA_TOOLS_MIRROR:-}" && "${INDEX:-}" == ghcr.io/* ]]; then
+  mirror_index="${INFRA_TOOLS_MIRROR%/}/${INDEX#ghcr.io/}"
+fi
 
-# Logs in to the index's registry and reads the layers of a platform's manifest (amd64 or arm64, this runner's by default).
+# Set by use_index(); why holds its last failure.
+registry="" api="" auth=() layers="" why=""
+
+# Reads a platform's index layers (this runner's by default) from the mirror, else or on failure from the source registry.
 connect() {
   [[ -n "${INDEX:-}" ]] || fail "no release yet: set the index input"
-  registry="${INDEX%%/*}"
-  local platform="${1:-${arch}}" repository="${INDEX#*/}" challenge realm service bearer digest
-  local name="${repository%:*}"
+  local platform="${1:-${arch}}"
+  if [[ -n "${mirror_index}" ]]; then
+    use_index "${mirror_index}" "${platform}" && return
+    fall_back
+  fi
+  use_index "${INDEX}" "${platform}" || fail "${why}"
+}
+
+# Stops using the mirror for the rest of the step.
+fall_back() {
+  echo "::warning::infra-tools: mirror ${mirror_index} failed (${why}), using ${INDEX}"
+  mirror_index=""
+}
+
+# Records why an index cannot be used; returns 1.
+index_failed() {
+  why="$1"
+  echo "::endgroup::"
+  return 1
+}
+
+# Logs in and reads a platform's index layers; on failure sets why and returns 1.
+use_index() {
+  local index="$1" platform="$2" repository="${1#*/}" challenge realm service bearer status digest started
+  local name="${repository%:*}" tag="${repository##*:}"
+  registry="${index%%/*}"
   # INFRA_TOOLS_REGISTRY_SCHEME is for tests only (scripts/test/action.test.mjs serves a fake registry over http).
   api="${INFRA_TOOLS_REGISTRY_SCHEME:-https}://${registry}/v2/${name}"
   auth=()
-  echo "::group::infra-tools: index ${INDEX}"
-  local started
+  echo "::group::infra-tools: index ${index}"
   started="$(now_ms)"
-  challenge="$(curl -sS --retry 3 -o /dev/null -D - -H "Accept: ${media_index}" "${api}/manifests/${repository##*:}" \
-    | tr -d '\r' | sed -nE 's/^[Ww][Ww][Ww]-[Aa]uthenticate: *//p')" || fail "cannot reach ${registry}"
-  if [[ "${challenge}" == Bearer* ]]; then
-    realm="$(sed -nE 's/.*realm="([^"]+)".*/\1/p' <<<"${challenge}")"
-    service="$(sed -nE 's/.*service="([^"]+)".*/\1/p' <<<"${challenge}")"
-    bearer="$(curl -fsSL --retry 3 ${TOKEN:+-u "token:${TOKEN}"} "${realm}?service=${service}&scope=repository:${name}:pull" \
-      | jq -r '.token // .access_token // empty')" || fail "login to ${registry} failed"
+  if [[ "${registry}" == *.pkg.dev ]]; then
+    # Artifact Registry takes the pod's Workload Identity token directly, skipping its slow token endpoint.
+    bearer="$(curl -fsS -m 5 --retry 2 -H "Metadata-Flavor: Google" \
+      http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -er .access_token)" \
+      || { index_failed "no Workload Identity token for ${registry}"; return; }
     auth=(-H "Authorization: Bearer ${bearer}")
+  else
+    challenge="$(curl -sS --retry 3 --connect-timeout 10 -m 30 -o /dev/null -D - -H "Accept: ${media_index}" "${api}/manifests/${tag}" \
+      | tr -d '\r' | sed -nE 's/^[Ww][Ww][Ww]-[Aa]uthenticate: *//p')" || { index_failed "cannot reach ${registry}"; return; }
+    if [[ "${challenge}" == Bearer* ]]; then
+      realm="$(sed -nE 's/.*realm="([^"]+)".*/\1/p' <<<"${challenge}")"
+      service="$(sed -nE 's/.*service="([^"]+)".*/\1/p' <<<"${challenge}")"
+      bearer="$(curl -fsSL --retry 3 --connect-timeout 10 -m 30 ${TOKEN:+-u "token:${TOKEN}"} "${realm}?service=${service}&scope=repository:${name}:pull" \
+        | jq -r '.token // .access_token // empty')" || { index_failed "login to ${registry} failed"; return; }
+      auth=(-H "Authorization: Bearer ${bearer}")
+    fi
   fi
   echo "login ${registry}: $(($(now_ms) - started)) ms"
   started="$(now_ms)"
-  digest="$(get -H "Accept: ${media_index}" "${api}/manifests/${repository##*:}" \
+  # A missing index (not copied yet) is no transient error: no retries.
+  status="$(curl -sS -o /dev/null -w '%{http_code}' -I --retry 3 --connect-timeout 10 -m 30 "${auth[@]}" \
+    -H "Accept: ${media_index}" "${api}/manifests/${tag}")" || { index_failed "cannot reach ${registry}"; return; }
+  [[ "${status}" != 404 ]] || { index_failed "no index ${index}"; return; }
+  digest="$(get -H "Accept: ${media_index}" "${api}/manifests/${tag}" \
     | jq -r --arg arch "${platform}" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest')" \
-    || fail "cannot read the index ${INDEX}"
-  [[ -n "${digest}" ]] || fail "the index ${INDEX} has no linux/${platform} manifest"
-  layers="$(get -H "Accept: ${media_manifest}" "${api}/manifests/${digest}" | jq -c .layers)" || fail "cannot read the index ${INDEX}"
+    || { index_failed "cannot read the index ${index}"; return; }
+  [[ -n "${digest}" ]] || { index_failed "the index ${index} has no linux/${platform} manifest"; return; }
+  layers="$(get -H "Accept: ${media_manifest}" "${api}/manifests/${digest}" | jq -c .layers)" \
+    || { index_failed "cannot read the index ${index}"; return; }
   echo "index: $(($(now_ms) - started)) ms"
   echo "::endgroup::"
 }
@@ -121,21 +162,36 @@ published() {
     '.[] | select(.annotations[$a + ".tool"] == $tool) | .annotations[$a + ".version"]' <<<"${layers}"
 }
 
-get() { curl -fsSL --retry 3 --retry-all-errors --retry-delay 1 --connect-timeout 10 "${auth[@]}" "$@"; }
+# Aborts stalled reads (below 1 KB/s for 30 s), with no total limit for large layers.
+get() { curl -fsSL --retry 3 --retry-all-errors --retry-delay 1 --connect-timeout 10 --speed-limit 1024 --speed-time 30 "${auth[@]}" "$@"; }
+
+# Downloads and verifies a layer, with retries; on failure sets why and returns 1.
+download_layer() {
+  local tool="$1" digest="$2" file="$3" attempt
+  echo "::debug::infra-tools: ${tool} layer ${digest} from ${registry}"
+  for attempt in 1 2 3; do
+    # This loop retries, digest mismatches included.
+    if get --retry 0 -o "${file}" "${api}/blobs/${digest}" && [[ "sha256:$(sha256sum "${file}" | cut -d' ' -f1)" == "${digest}" ]]; then
+      return 0
+    fi
+    echo "::warning::infra-tools: ${tool} download failed or does not match its digest (attempt ${attempt})"
+    ((attempt < 3)) || break
+    sleep "${attempt}"
+  done
+  why="${tool}: could not download layer ${digest}"
+  return 1
+}
 
 # Downloads a layer, verifies it against its digest and extracts it into the tool cache, then marks the tool version
 # complete. The layer holds opt/hostedtoolcache/<folder>/<version>/<arch> (ADR 0003): two path components are stripped.
 install_layer() {
-  local tool="$1" digest="$2" target="$3" file="${tmp}/infra-tools-$1.tar.gz" attempt
-  echo "::debug::infra-tools: ${tool} layer ${digest} from ${registry}"
-  for attempt in 1 2 3; do
-    if get -o "${file}" "${api}/blobs/${digest}" && [[ "sha256:$(sha256sum "${file}" | cut -d' ' -f1)" == "${digest}" ]]; then
-      break
-    fi
-    echo "::warning::infra-tools: ${tool} download failed or does not match its digest (attempt ${attempt})"
-    ((attempt < 3)) || fail "${tool}: could not download layer ${digest}"
-    sleep "${attempt}"
-  done
+  local tool="$1" digest="$2" target="$3" file="${tmp}/infra-tools-$1.tar.gz"
+  if ! download_layer "${tool}" "${digest}" "${file}"; then
+    [[ -n "${mirror_index}" ]] || fail "${why}"
+    fall_back
+    use_index "${INDEX}" "${arch}" || fail "${why}"
+    download_layer "${tool}" "${digest}" "${file}" || fail "${why}"
+  fi
   rm -rf "${target}" "${target}.complete"
   mkdir -p "${tool_cache}"
   tar xzf "${file}" -C "${tool_cache}" --strip-components=2 --exclude='*.complete'

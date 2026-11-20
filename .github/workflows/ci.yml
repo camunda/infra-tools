@@ -367,6 +367,35 @@ jobs:
         [[ "$(command -v node)" == "${NODE_HOME}/bin/node" ]]
         test -f "${NODE_HOME}/infra-tools-marker"
 
+  # No GKE metadata server on GitHub-hosted runners: the mirror fails and the action falls back to ghcr.io.
+  action-mirror:
+    name: Test action (mirror fallback)
+    needs: index
+    permissions:
+      contents: read
+      packages: read # pull the index and the tool images from ghcr.io
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Install maven, with a failing mirror
+      id: install
+      uses: ./
+      env:
+        INFRA_TOOLS_MIRROR: europe-west1-docker.pkg.dev/ci-30-162810/infra-tools
+      with:
+        tools: maven@3
+        index: ${{ needs.index.outputs.index }}
+
+    - name: Check maven is installed
+      env:
+        VERSIONS: ${{ steps.install.outputs.versions }}
+      run: mvn --version | grep -F "Apache Maven $(jq -er .maven <<<"${VERSIONS}") "
+
   action-macos:
     name: Test action (macos-latest)
     needs: index
@@ -404,6 +433,7 @@ jobs:
     - action-linux
     - action-validate
     - action-tool-cache
+    - action-mirror
     - action-macos
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -1,4 +1,4 @@
-// Minimal OCI distribution client for the source registry: token exchange as on ghcr.io (any user name with a GitHub token).
+// Minimal OCI distribution client: token exchange as on ghcr.io (any user name) or Artifact Registry (oauth2accesstoken).
 import { manifestBytes, MEDIA_TYPES, sha256 } from './oci.mjs';
 
 const ACCEPT = [
@@ -15,14 +15,15 @@ export const tagExists = (registry) => (tag) => registry.exists(tag);
 
 export class Registry {
   // repository: <registry>/<name>, e.g. ghcr.io/camunda/infra-tools.
-  // scheme: http for tests only.
-  constructor(repository, { token = process.env.GITHUB_TOKEN, scheme = 'https' } = {}) {
+  // user: token exchange user name. scheme: http for tests only.
+  constructor(repository, { token = process.env.GITHUB_TOKEN, user = 'token', scheme = 'https' } = {}) {
     const slash = repository.indexOf('/');
     this.repository = repository;
     this.host = repository.slice(0, slash);
     this.name = repository.slice(slash + 1);
     this.base = `${scheme}://${this.host}/v2/${this.name}`;
     this.token = token;
+    this.user = user;
     this.bearer = {};
   }
 
@@ -61,7 +62,7 @@ export class Registry {
     const url = new URL(params.realm);
     if (params.service) url.searchParams.set('service', params.service);
     url.searchParams.set('scope', `repository:${this.name}:${scope}`);
-    const headers = this.token ? { Authorization: `Basic ${Buffer.from(`token:${this.token}`).toString('base64')}` } : {};
+    const headers = this.token ? { Authorization: `Basic ${Buffer.from(`${this.user}:${this.token}`).toString('base64')}` } : {};
     const res = await fetch(url, { headers });
     if (!res.ok) throw new Error(`${this.host}: token request failed: HTTP ${res.status}`);
     const json = await res.json();
@@ -91,6 +92,25 @@ export class Registry {
     return res.json();
   }
 
+  // The manifest as served ({ bytes, mediaType }), so a copy keeps its digest.
+  async manifestBytes(reference) {
+    const res = await this.request(`/manifests/${reference}`, { headers: { Accept: ACCEPT } });
+    return { bytes: Buffer.from(await res.arrayBuffer()), mediaType: res.headers.get('content-type') };
+  }
+
+  // Checked against its digest.
+  async blob(digest) {
+    const res = await this.request(`/blobs/${digest}`);
+    const bytes = Buffer.from(await res.arrayBuffer());
+    if (sha256(bytes) !== digest) throw new Error(`${this.repository}: blob ${digest} does not match its digest`);
+    return bytes;
+  }
+
+  async hasBlob(digest) {
+    const res = await this.request(`/blobs/${digest}`, { method: 'HEAD', push: true, ok: [200, 404] });
+    return res.status === 200;
+  }
+
   // Digest of the manifest at a reference, from the bytes served.
   async digest(reference) {
     const res = await this.request(`/manifests/${reference}`, { headers: { Accept: ACCEPT } });
@@ -111,8 +131,11 @@ export class Registry {
 
   async ensureBlob(bytes) {
     const digest = sha256(bytes);
-    const head = await this.request(`/blobs/${digest}`, { method: 'HEAD', push: true, ok: [200, 404] });
-    if (head.status === 200) return digest;
+    return (await this.hasBlob(digest)) ? digest : this.uploadBlob(bytes);
+  }
+
+  async uploadBlob(bytes) {
+    const digest = sha256(bytes);
     const start = await this.request('/blobs/uploads/', { method: 'POST', push: true, ok: [202] });
     const location = new URL(start.headers.get('location'), this.base);
     location.searchParams.set('digest', digest);

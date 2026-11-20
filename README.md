@@ -44,6 +44,16 @@ Build and test a tool version locally, for both platforms (needs a Buildx builde
 cd scripts && node build.mjs maven 3.9.16
 ```
 
+## Mirrors
+
+Self-hosted runner sets read the index and tool layers from a mirror of `ghcr.io` in their own cloud ([ADR 0007](docs/adr/0007-ghcr-source-registry-with-mirrors.md)), set once per runner set with `INFRA_TOOLS_MIRROR` in the runner environment; workflows don't change. The log shows the registry each tool came from; when the mirror fails, the action warns and falls back to `ghcr.io`. A job opts out with `INFRA_TOOLS_MIRROR: ""` in its `env`.
+
+| Runners | Mirror | Managed in |
+| --- | --- | --- |
+| GKE (`camunda-ci`) | Artifact Registry repository `europe-west1-docker.pkg.dev/ci-30-162810/infra-tools`, read with the runner pod's Workload Identity | [`camunda/infra-core`](https://github.com/camunda/infra-core): `camunda-ci/terraform/google/prod/artifact-registry-repository.tf`, `INFRA_TOOLS_MIRROR` in the runner sets' `default-config` |
+
+The `mirror` job of the [Release](.github/workflows/release.yml) workflow fills it: on every push to `main`, after the releases are published, it copies each release index the mirror lacks, with its manifests and layers, logged in with GitHub OIDC as `infra-tools-mirror-sa`. No credential is stored. A failed copy fails only that job, and the next run copies it; GKE runners use `ghcr.io` meanwhile. Another mirror filled the same way is one more entry in that job's matrix, with a login step for its cloud.
+
 ## Development
 
 Prerequisites: the Node.js version pinned in [`.tool-versions`](.tool-versions) (`asdf install`), [pre-commit](https://pre-commit.com) and `make`. `make help` lists the targets.

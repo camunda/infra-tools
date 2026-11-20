@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chmod, cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
@@ -76,9 +77,11 @@ before(async () => {
   registry.addIndex('1.2.3-tools', entries);
   // An index whose maven 3.9.16 is on linux/amd64 only.
   registry.addIndex('amd64-only-tools', entries.filter((e) => !(e.version === '3.9.16' && e.platform === 'linux/arm64')));
+  await startMirror();
 });
 
 after(async () => {
+  await stopMirror();
   await registry.stop();
   await rm(work, { recursive: true, force: true });
 });
@@ -366,6 +369,109 @@ test('a missing tool cache folder is created', async () => {
   const result = await action({ tools: 'maven@3.9' });
   assert.equal(result.status, 0, result.log);
   assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
+});
+
+// GKE runner set: the fake registry plays ghcr.io, the mirror fake Artifact Registry and the GKE metadata server, via a proxy.
+const MIRROR = 'europe-west1-docker.pkg.dev/ci-30-162810/infra-tools';
+const SOURCE_INDEX = `ghcr.io/${REPOSITORY}:test-tools`;
+const METADATA_TOKEN = 'workload-identity-token';
+
+let mirror;
+let proxy;
+let routes; // host → fake registry host the proxy sends it to
+// Called once the test index is filled: the mirror shares its content.
+async function startMirror() {
+  mirror = new FakeRegistry({ name: `ci-30-162810/infra-tools/${REPOSITORY}`, metadataToken: METADATA_TOKEN });
+  await mirror.start();
+  // Same content, same digests.
+  mirror.blobs = registry.blobs;
+  mirror.manifests = registry.manifests;
+  routes = { 'ghcr.io': registry.host, 'europe-west1-docker.pkg.dev': mirror.host, 'metadata.google.internal': mirror.host };
+  proxy = createServer((req, res) => {
+    const url = new URL(req.url);
+    const [hostname, port] = (routes[url.host] ?? url.host).split(':');
+    const forward = request({ hostname, port, path: url.pathname + url.search, method: req.method, headers: req.headers }, (answer) => {
+      res.writeHead(answer.statusCode, answer.headers);
+      answer.pipe(res);
+    });
+    forward.on('error', () => res.writeHead(502).end());
+    req.pipe(forward);
+  });
+  await new Promise((resolve) => proxy.listen(0, '127.0.0.1', resolve));
+}
+
+async function stopMirror() {
+  await mirror.stop();
+  await new Promise((resolve) => proxy.close(resolve));
+}
+
+beforeEach(() => {
+  mirror.requests = [];
+  mirror.failures = {};
+});
+
+const onGke = (env = {}) => ({ INDEX: SOURCE_INDEX, INFRA_TOOLS_MIRROR: MIRROR, http_proxy: `http://127.0.0.1:${proxy.address().port}`, ...env });
+
+test('with a mirror on Artifact Registry, tools come from the mirror with the Workload Identity token, not from ghcr.io', async () => {
+  const result = await action({ tools: 'maven@3.9', env: onGke() });
+  assert.equal(result.status, 0, result.log);
+  assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
+  assert.match(result.log, /^maven@3\.9: 3\.9\.16 installed .* from europe-west1-docker\.pkg\.dev -> /m);
+  assert.ok(mirror.requests.includes(`GET /v2/ci-30-162810/infra-tools/${REPOSITORY}/manifests/test-tools`), mirror.requests.join('\n'));
+  assert.ok(!mirror.requests.some((r) => r.startsWith('GET /token')), 'no token exchange on Artifact Registry');
+  assert.deepEqual(registry.requests, []);
+  assert.doesNotMatch(result.log, /::warning::/);
+});
+
+test('when the mirror fails, the action falls back to ghcr.io with a warning and succeeds', async () => {
+  for (const [down, why] of [
+    ['europe-west1-docker.pkg.dev', `cannot read the index ${MIRROR}/${REPOSITORY}:test-tools`],
+    ['metadata.google.internal', 'no Workload Identity token for europe-west1-docker.pkg.dev'],
+  ]) {
+    const route = routes[down];
+    routes[down] = '127.0.0.1:1';
+    try {
+      await rm(toolCache(), { recursive: true, force: true });
+      registry.requests = [];
+      const result = await action({ tools: 'maven@3.9', env: onGke() });
+      assert.equal(result.status, 0, result.log);
+      assert.ok(result.log.includes(`::warning::infra-tools: mirror ${MIRROR}/${REPOSITORY}:test-tools failed (${why}), using ${SOURCE_INDEX}`), result.log);
+      assert.match(result.log, /^maven@3\.9: 3\.9\.16 installed .* from ghcr\.io -> /m);
+      assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
+    } finally {
+      routes[down] = route;
+    }
+  }
+});
+
+test('a mirror without the release index, not copied yet, falls back to ghcr.io at once, without retries', async () => {
+  const shared = mirror.manifests;
+  mirror.manifests = new Map();
+  try {
+    const result = await action({ tools: 'maven@3.9', env: onGke() });
+    assert.equal(result.status, 0, result.log);
+    assert.ok(result.log.includes(`::warning::infra-tools: mirror ${MIRROR}/${REPOSITORY}:test-tools failed (no index ${MIRROR}/${REPOSITORY}:test-tools), using ${SOURCE_INDEX}`), result.log);
+    assert.equal(mirror.requests.filter((r) => r.includes('/manifests/')).length, 1, mirror.requests.join('\n'));
+  } finally {
+    mirror.manifests = shared;
+  }
+});
+
+test('a layer the mirror fails to serve comes from ghcr.io, with a warning', async () => {
+  const digest = digestOf('3.9.16', 'linux/amd64');
+  mirror.failures[digest] = Infinity;
+  const result = await action({ tools: 'maven@3.9', env: onGke() });
+  assert.equal(result.status, 0, result.log);
+  assert.ok(result.log.includes(`::warning::infra-tools: mirror ${MIRROR}/${REPOSITORY}:test-tools failed (maven: could not download layer ${digest}), using ${SOURCE_INDEX}`), result.log);
+  assert.ok(registry.requests.includes(`GET /v2/${REPOSITORY}/blobs/${digest}`), registry.requests.join('\n'));
+  assert.match(result.log, /^maven@3\.9: 3\.9\.16 installed .* from ghcr\.io -> /m);
+});
+
+test('an index on another registry than ghcr.io ignores the mirror', async () => {
+  const result = await action({ tools: 'maven@3.9', env: onGke({ INDEX: `${registry.host}/${REPOSITORY}:test-tools` }) });
+  assert.equal(result.status, 0, result.log);
+  assert.deepEqual(mirror.requests, []);
+  assert.match(result.log, new RegExp(`^maven@3\\.9: 3\\.9\\.16 installed .* from ${registry.host} -> `, 'm'));
 });
 
 test('summary: true adds a table of the selected tools to the job summary', async () => {

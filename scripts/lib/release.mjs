@@ -43,7 +43,7 @@ export function previousRelease(tags, version) {
 }
 
 // The releases X.Y.Z of the index tags (X.Y.Z-tools) among the tags of the registry, oldest first.
-const releaseVersions = (tags) =>
+export const releaseVersions = (tags) =>
   tags
     .map((t) => t.match(/^(\d+\.\d+\.\d+)-tools$/)?.[1])
     .filter(Boolean)
