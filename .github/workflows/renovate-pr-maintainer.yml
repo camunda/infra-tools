@@ -81,7 +81,7 @@ jobs:
 
     - name: Send the stuck PRs digest
       if: steps.digest.outputs.stuck == 'true'
-      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+      uses: slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa # v4.1.0
       with:
         webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
         webhook-type: incoming-webhook
@@ -147,7 +147,7 @@ jobs:
           secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
 
     - name: Notify Slack
-      uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+      uses: slackapi/slack-github-action@0bc3581177d9a0f8d555e07689384b376528e8fa # v4.1.0
       with:
         webhook: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
         webhook-type: incoming-webhook
