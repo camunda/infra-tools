@@ -35,7 +35,7 @@ A group of a tool's versions sharing a major or a minor (or every version in no 
 _Avoid_: line image, series, track, range
 
 **Revision**:
-The rebuild number of one tool version; a new revision replaces the published tool image of that version.
+The rebuild number of one tool version; a new revision replaces the published tool image of that version, because the build changed or a platform was added.
 
 **Retired version**:
 A tool version left out of the next release's index; older releases keep it.
@@ -47,7 +47,7 @@ The third party that publishes a tool's versions (Adoptium, `dl.google.com`, Mav
 _Avoid_: source registry, origin
 
 **Tool image**:
-A single-layer image holding exactly one tool version at one revision, for every platform; it is stored, never run.
+A single-layer image holding exactly one tool version at one revision, for the platforms available when it was built; it is stored, never run.
 _Avoid_: line image, toolset image, bundle image, runner image
 
 **Reconciler**:
