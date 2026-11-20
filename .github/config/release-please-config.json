@@ -5,6 +5,7 @@
   "versioning": "default",
   "include-component-in-tag": false,
   "include-v-in-tag": false,
+  "draft": true,
   "changelog-sections": [
     { "type": "build", "section": "Build System", "hidden": true },
     { "type": "chore", "section": "Miscellaneous Chores", "hidden": true },

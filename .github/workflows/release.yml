@@ -2,10 +2,11 @@
 name: Release
 
 # Releases (spec §5.5, D25): release-please keeps a release PR up to date with the record commits and the action changes since
-# the latest release (config in .github/config/), and creates release X.Y.Z once GitHub auto-merged it (release-merge.yml).
-# The release is then published: its X.Y.Z-tools index pushed to ghcr.io, the Added / Replaced / Retired tables added to its
-# notes and tools.json attached. Every release still without tools.json is published, oldest first: a release whose
-# publication failed is completed by the next run, before any later release.
+# the latest release (config in .github/config/), and creates release X.Y.Z as a draft, without its tag, once GitHub
+# auto-merged it (release-merge.yml). The release is then published: its X.Y.Z-tools index pushed to ghcr.io, the Added /
+# Replaced / Retired tables added to its notes, tools.json attached and the draft published, which creates its tag (D60): the
+# action cannot be pinned to a release whose index is missing. Every draft release is published, oldest first: a release
+# whose publication failed stays a draft and is completed by the next run, before any later release.
 on:
   push:
     branches:
@@ -61,16 +62,40 @@ jobs:
       with:
         github-token: ${{ steps.app-token.outputs.token }}
 
-  # Every release without tools.json, oldest first: nothing to do on most runs.
+  # Every draft release, oldest first: nothing to do on most runs.
   publish:
     name: Publish the release
     needs: release-please
     permissions:
-      contents: write # add the tool tables to the release notes and attach tools.json
+      contents: read
+      id-token: write # Vault OIDC/JWT auth
       packages: write # push the index to ghcr.io
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+    - name: Import Secrets
+      id: vault-secrets
+      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+      with:
+        url: ${{ secrets.VAULT_ADDR }}
+        method: jwt
+        role: ${{ secrets.VAULT_JWT_ROLE }}
+        path: ${{ secrets.VAULT_JWT_PATH }}
+        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        exportEnv: false # we rely on step outputs, no need for environment variables
+        secrets: |
+          secret/data/products/infra/ci/infra-releases RELEASES_APP_ID;
+          secret/data/products/infra/ci/infra-releases RELEASES_APP_KEY;
+
+    # The infra-releases App (D56): the tag that publishing a draft creates starts the workflows a job token's would not.
+    - name: Generate a GitHub token
+      id: app-token
+      uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
+      with:
+        app-id: ${{ steps.vault-secrets.outputs.RELEASES_APP_ID }}
+        private-key: ${{ steps.vault-secrets.outputs.RELEASES_APP_KEY }}
+        permission-contents: write # read the draft releases, add the tool tables to their notes, attach tools.json and publish them
+
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
@@ -89,7 +114,8 @@ jobs:
     # Fails when a catalog version lost its tag, or on a registry or GitHub API outage.
     - name: Publish the release
       env:
-        GITHUB_TOKEN: ${{ github.token }}
+        GH_TOKEN: ${{ steps.app-token.outputs.token }} # gh, for the releases
+        GITHUB_TOKEN: ${{ github.token }} # the registry
         REPOSITORY: ${{ github.repository }}
       run: node scripts/index.mjs release --image "${IMAGE}" --repository "${REPOSITORY}"
 
@@ -100,7 +126,7 @@ jobs:
           echo "## Release publication failed"
           echo
           echo "Inspect the failed step in the job logs. A failed run reruns its failed jobs up to attempt 3."
-          echo "The release stays unpublished (no tools.json) until a run succeeds: the next push to main, or a rerun of this one, completes it before any later release."
+          echo "The release stays a draft, without its tag, until a run succeeds: the next push to main, or a rerun of this one, completes it before any later release."
           echo "A catalog version whose tag is missing needs its tool image published again (revision bump) or its version retired."
         } >>"${GITHUB_STEP_SUMMARY}"
 

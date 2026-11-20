@@ -142,7 +142,7 @@ test('the action tests install from the index of the latest release, or from the
   assert.equal(latestIndexTag(null), 'tracer-tools');
 });
 
-test('every release without tools.json is left to publish, oldest first; tool releases and drafts are not releases', () => {
+test('every draft release and every release without tools.json is left to publish, oldest first; tool releases are not releases', () => {
   const release = (tag, assets = [], extra = {}) => ({ tag_name: tag, draft: false, assets: assets.map((name) => ({ name, state: 'uploaded' })), ...extra });
   const releases = [
     release('0.10.0'),
@@ -152,8 +152,14 @@ test('every release without tools.json is left to publish, oldest first; tool re
     release('0.11.0', [], { draft: true }),
     release('maven-3.9.16-r1'),
   ];
-  assert.deepEqual(unpublishedReleases(releases).map((r) => r.tag_name), ['0.2.0', '0.10.0']);
+  assert.deepEqual(unpublishedReleases(releases).map((r) => r.tag_name), ['0.2.0', '0.10.0', '0.11.0']);
   assert.deepEqual(unpublishedReleases([release('0.9.0', ['tools.json'])]), []);
+});
+
+test('a draft release whose tools.json is uploaded is left to publish', () => {
+  // Its publication failed after the upload, before the draft was published.
+  const release = { tag_name: '0.9.0', draft: true, assets: [{ name: 'tools.json', state: 'uploaded' }] };
+  assert.deepEqual(unpublishedReleases([release]).map((r) => r.tag_name), ['0.9.0']);
 });
 
 test('a release whose tools.json upload failed is left to publish', () => {
