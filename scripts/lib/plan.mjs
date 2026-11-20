@@ -4,11 +4,17 @@ import { renovateLookup, versioningFor } from './renovate.mjs';
 import { archFolder, lineFor, parseDuration, PLATFORMS, revisionOf } from './tool-definition.mjs';
 import { compareVersions, sortVersions, tagFor } from './versions.mjs';
 
-// lookup: Renovate's getPkgReleases or a stand-in. fixPrs: the fix PR tracking each version of the tool, by version ({ number,
+// A version is published as soon as one platform has it upstream, with the platforms it has (D62, ADR 0011): every planned
+// version has its platforms to build, and the ones upstream lacks (missing) with its upstream release date (released, null
+// without one), for the completeness check to report. Once published, a platform upstream adds is planned as the next revision
+// (the highest published one plus one): it builds only the platforms added and reuses the others from the tool image it replaces
+// (reuse, its tag). A manual revision above the highest published one builds every platform again.
+// lookup: Renovate's getPkgReleases or a stand-in. tags: the published tags of the registry. platformsOf(tag): the platforms of a
+// published tool image (Registry.toolImagePlatforms). fixPrs: the fix PR tracking each version of the tool, by version ({ number,
 // state: 'open' or 'closed' without merge }, lib/fix-pr.mjs trackedVersions). An unpublished version with an open fix PR is
 // planned again, so the fix PR closes once it builds (its fixPr is set: it is tracked, never a gap); one whose fix PR was
 // closed without merge is ignored.
-export async function planTool(tool, { lookup = renovateLookup, tagExists, now = Date.now(), fixPrs = {} }) {
+export async function planTool(tool, { lookup = renovateLookup, tags, platformsOf, now = Date.now(), fixPrs = {} }) {
   const scheme = await versioningFor(tool.source);
   const { upstream, link } = await upstreamVersions(tool, lookup);
   const pinned = Object.values(tool.publish.lines).flatMap((line) => [...(line.versions ?? []), ...Object.keys(line.revisions ?? {})]);
@@ -18,12 +24,10 @@ export async function planTool(tool, { lookup = renovateLookup, tagExists, now =
   for (const version of sortVersions(upstream.keys())) {
     const line = lineFor(tool, version);
     let [decision, reason] = decide(line, version, scheme);
-    const missing = PLATFORMS.filter((p) => !upstream.get(version).platforms.has(p));
-    if (decision === 'publish' && missing.length) [decision, reason] = ['wait', `missing on ${missing.join(', ')}`];
+    // Some datasources (java-version, maven) give no release date: minAge cannot apply, and the reason says so.
+    const released = Date.parse(upstream.get(version).releaseTimestamp);
     if (decision === 'publish' && reason === 'new') {
       const minAge = line.minAge ?? tool.publish.minAge;
-      // Some datasources (java-version, maven) give no release date: minAge cannot apply, and the reason says so.
-      const released = Date.parse(upstream.get(version).releaseTimestamp);
       if (Number.isNaN(released)) reason = 'new, no release date: minAge not applied';
       else if (now - released < parseDuration(minAge)) [decision, reason] = ['wait', `released less than ${minAge} ago`];
     }
@@ -31,15 +35,42 @@ export async function planTool(tool, { lookup = renovateLookup, tagExists, now =
       versions.push({ version, decision, reason });
       continue;
     }
-    const revision = revisionOf(tool, version);
-    const tag = tagFor(tool.name, version, revision);
+    const available = PLATFORMS.filter((p) => upstream.get(version).platforms.has(p));
+    const missing = PLATFORMS.filter((p) => !available.includes(p));
+    const waiting = missing.length ? { missing, released: Number.isNaN(released) ? null : new Date(released).toISOString() } : {};
+    const target = await nextTarget(tool, version, available, { tags, platformsOf });
     const fixPr = fixPrs[version];
-    if (await tagExists(tag)) versions.push({ version, decision: 'skip', reason: 'published' });
+    if (target.published) versions.push({ version, decision: 'skip', reason: 'published', line: line.key, ...target.published, ...waiting });
     else if (fixPr?.state === 'closed') versions.push({ version, decision: 'skip', reason: `ignored: fix PR #${fixPr.number} closed without merge` });
-    else if (fixPr) versions.push({ version, decision, reason: `${reason}, retried: fix PR #${fixPr.number}`, line: line.key, revision, tag, fixPr: fixPr.number });
-    else versions.push({ version, decision, reason, line: line.key, revision, tag });
+    else {
+      if (target.reuse) reason = `adds ${target.platforms.join(', ')} to ${target.reuse}`;
+      if (fixPr) reason = `${reason}, retried: fix PR #${fixPr.number}`;
+      versions.push({ version, decision, reason, line: line.key, ...target, ...waiting, ...(fixPr && { fixPr: fixPr.number }) });
+    }
   }
   return { tool: tool.name, versions, upstream: link };
+}
+
+// What publishing a version takes, given the platforms upstream has it for (available) and its published tags (tags): its
+// revision and tag, the platforms to build, and the tool image to reuse the other platforms from (reuse, its tag) when only
+// platforms are added; or { published: { revision, tag, platforms } } when its highest published revision has every available
+// platform. A manual revision (revisions in its line) above the highest published one builds every available platform.
+async function nextTarget(tool, version, available, { tags, platformsOf }) {
+  const highest = highestRevision(tags, tool.name, version);
+  const manual = revisionOf(tool, version);
+  if (manual > highest) return { revision: manual, tag: tagFor(tool.name, version, manual), platforms: available };
+  const tag = tagFor(tool.name, version, highest);
+  const platforms = await platformsOf(tag);
+  const added = available.filter((p) => !platforms.includes(p));
+  if (!added.length) return { published: { revision: highest, tag, platforms } };
+  return { revision: highest + 1, tag: tagFor(tool.name, version, highest + 1), platforms: added, reuse: tag };
+}
+
+// The highest published revision of a tool version among the published tags (tags), 0 when none.
+export function highestRevision(tags, tool, version) {
+  const prefix = tagFor(tool, version, 0).slice(0, -1);
+  const revisions = [...tags].filter((t) => t.startsWith(prefix) && /^\d+$/.test(t.slice(prefix.length))).map((t) => Number(t.slice(prefix.length)));
+  return Math.max(0, ...revisions);
 }
 
 // Upstream versions by exact version string, with the platforms they exist for, and the upstream project link. `{arch}` in the package name makes one lookup per

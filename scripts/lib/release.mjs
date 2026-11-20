@@ -54,8 +54,9 @@ const versionKey = (e) => `${e.tool}|${e.version}`;
 const keyOf = (e) => `${e.platform}|${versionKey(e)}`;
 
 // Index = previous index + catalog entries − retired versions. layers maps each catalog tag to its layer per platform
-// ({ 'linux/amd64': { digest, size, mediaType } }). Throws when a catalog version lost its tag or a layer, or when a layer
-// changed without a higher revision (published tool images never change, R7).
+// ({ 'linux/amd64': { digest, size, mediaType } }): a tool image holds the platforms upstream had when it was built (D62).
+// Throws when a catalog version lost its tag or a layer of its platforms, or when a layer changed without a higher revision
+// (published tool images never change, R7).
 export function buildIndex({ tools, catalogs, previousIndex, layers }) {
   const merged = new Map(previousIndex.map((e) => [keyOf(e), e]));
   const retired = new Set();
@@ -72,7 +73,7 @@ export function buildIndex({ tools, catalogs, previousIndex, layers }) {
         errors.push(`${name}: tag ${entry.tag} not found`);
         continue;
       }
-      for (const platform of PLATFORMS) {
+      for (const platform of entry.platforms ?? PLATFORMS) {
         const layer = tagLayers[platform];
         if (!layer) {
           errors.push(`${name}: tag ${entry.tag} has no layer for ${platform}`);

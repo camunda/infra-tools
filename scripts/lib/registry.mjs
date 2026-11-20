@@ -10,7 +10,7 @@ const ACCEPT = [
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// tagExists(tag) of planTool and checkCatalogTags against the tags of registry (Registry.exists).
+// tagExists(tag) of checkCatalogTags against the tags of registry (Registry.exists).
 export const tagExists = (registry) => (tag) => registry.exists(tag);
 
 export class Registry {
@@ -141,6 +141,12 @@ export class Registry {
     location.searchParams.set('digest', digest);
     await this.request(location.toString(), { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: bytes, push: true, ok: [201] });
     return digest;
+  }
+
+  // The platforms of a tool image (['linux/amd64', 'linux/arm64']), from its index alone.
+  async toolImagePlatforms(tag) {
+    const index = await this.manifest(tag);
+    return (index.manifests ?? []).filter(({ platform }) => platform?.os === 'linux' && platform.architecture !== 'unknown').map(({ platform }) => `linux/${platform.architecture}`);
   }
 
   // The single layer of a tool image per platform ({ 'linux/amd64': { digest, size, mediaType } }).

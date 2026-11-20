@@ -233,6 +233,21 @@ link_wrapper() {
 }
 
 # mode: validate checks the selectors of the tools and tool-cache inputs of every infra-tools step in the repository's
+# Fails for a selector matching no version of this runner's platform. A version is published as soon as one platform has it
+# upstream (D62): when another platform of the index has a match, says the version is not published for this platform yet.
+no_match() {
+  local selector="$1" tool="$2" want="$3" platform others=""
+  for platform in "${platforms[@]}"; do
+    [[ "${platform}" != "${arch}" ]] || continue
+    use_index "${mirror_index:-${INDEX}}" "${platform}" || continue
+    mapfile -t candidates < <(published "${tool}")
+    resolved="$(highest "${want}" "${candidates[@]}")"
+    [[ -n "${resolved}" ]] && others+="${others:+, }${resolved} on linux/${platform}"
+  done
+  [[ -z "${others}" ]] || fail "${selector} is not published for linux/${arch} yet in ${INDEX} (only ${others}): upstream has not released it for this platform; pin a version published for it"
+  fail "${selector} matches no version in ${INDEX}"
+}
+
 # workflows and local actions against the index on every platform, so an invalid one fails before merge; it installs
 # nothing and exits. Each invalid selector gets an error annotation on its file and fails the step.
 validate() {
@@ -281,7 +296,10 @@ validate() {
         absent+="${absent:+, }linux/${platform}"
       fi
     done
-    if [[ -n "${absent}" ]]; then
+    if [[ -n "${absent}" && -n "${found}" ]]; then
+      echo "::error file=${file}::infra-tools: ${selector} is not published for ${absent} yet in ${INDEX} (only ${found}): upstream has not released it for that platform"
+      failed=1
+    elif [[ -n "${absent}" ]]; then
       echo "::error file=${file}::infra-tools: ${selector} matches no version in ${INDEX} on ${absent}"
       failed=1
     else
@@ -332,7 +350,7 @@ if ((${#missing[@]})); then
     tool="${selector%%@*}"
     mapfile -t candidates < <(published "${tool}")
     resolved="$(highest "${want[${selector}]}" "${candidates[@]}")"
-    [[ -n "${resolved}" ]] || fail "${selector} matches no version in ${INDEX}"
+    [[ -n "${resolved}" ]] || no_match "${selector}" "${tool}" "${want[${selector}]}"
     layer="$(jq -c --arg tool "${tool}" --arg version "${resolved}" --arg a "${annotation}" \
       '[.[] | select(.annotations[$a + ".tool"] == $tool and .annotations[$a + ".version"] == $version)][0]' <<<"${layers}")"
     target="${tool_cache}/${folder[${selector}]}/${resolved//+/-}/${arch_folder[${selector}]}"

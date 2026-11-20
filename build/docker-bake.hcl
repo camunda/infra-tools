@@ -1,6 +1,7 @@
 # Build and test of one tool version (scripts/build.mjs sets the variables from the tool definition, spec §5.2).
-# `tool` writes the FROM scratch tool image to the OCI layout LAYOUT; `test` runs the tool's test.sh on every platform and every
-# Ubuntu release of UBUNTU_RELEASES against that layout, which scripts/build.mjs then pushes as it is.
+# `tool` writes the FROM scratch tool image to the OCI layout LAYOUT; `test` runs the tool's test.sh on each platform of PLATFORMS
+# (every platform, or those a new revision adds, D62) and every Ubuntu release of UBUNTU_RELEASES against that layout, which
+# scripts/build.mjs then pushes as it is.
 variable "TOOL" {}
 variable "VERSION" {}
 variable "FOLDER_VERSION" {}
@@ -41,7 +42,8 @@ target "tool" {
   context     = "tools/${TOOL}"
   dockerfile  = "../../build/tool.Dockerfile"
   contexts    = { builder = "target:builder" }
-  annotations = ["index:org.opencontainers.image.revision=${REVISION}"]
+  # Bake rejects index annotations on one platform: scripts/lib/oci-layout.mjs then moves it to the image index it pushes.
+  annotations = ["${length(split(",", PLATFORMS)) > 1 ? "index" : "manifest"}:org.opencontainers.image.revision=${REVISION}"]
   output      = ["type=oci,dest=${LAYOUT},tar=false"]
 }
 

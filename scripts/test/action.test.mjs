@@ -309,6 +309,15 @@ test('an arm64 runner installs the arm64 layer into its arch folder', async () =
   assert.deepEqual(result.path, [toolCache('maven/3.9.16/arm64/bin')]);
 });
 
+test('a selector published for another platform only says it is not published for the runner\'s platform yet (D62)', async () => {
+  const index = `${registry.host}/${REPOSITORY}:amd64-only-tools`;
+  const result = await action({ tools: 'maven@3.9', env: { RUNNER_ARCH: 'ARM64', INDEX: index } });
+  assert.notEqual(result.status, 0);
+  const expected = `::error::infra-tools: maven@3.9 is not published for linux/arm64 yet in ${index} (only 3.9.16 on linux/amd64): upstream has not released it for this platform; pin a version published for it`;
+  assert.ok(result.log.includes(expected), result.log);
+  assert.equal(result.outputs.versions, undefined);
+});
+
 // macOS runners run the action with their bash 3.2 (/bin/bash on macOS; bash 5 elsewhere).
 test('a non-Linux runner installs nothing and succeeds', async () => {
   const result = await action({ tools: 'maven@3', env: { RUNNER_OS: 'macOS' }, bash: '/bin/bash' });
@@ -551,7 +560,7 @@ test('mode: validate passes the selectors of every workflow and local action, an
   assert.equal(result.outputs.versions, '{}');
 });
 
-test('mode: validate fails with an annotation on the file for each selector that matches no version on a platform', async () => {
+test('mode: validate fails with an annotation on the file for each selector that matches no version on a platform, saying when another platform has it', async () => {
   await repositoryFile('.github/workflows/ci.yml', step({ tools: ['maven@3.9', 'maven@3.10', 'maven@99'] }));
   await repositoryFile('.github/actions/build/action.yml', `runs:\n  using: composite\n  steps:\n  - uses: camunda/infra-tools@v1\n    with:\n      tools: maven@3.9.16\n`);
   const result = await validate({ INDEX: `${registry.host}/${REPOSITORY}:amd64-only-tools` });
@@ -559,9 +568,9 @@ test('mode: validate fails with an annotation on the file for each selector that
   const index = `${registry.host}/${REPOSITORY}:amd64-only-tools`.replaceAll('.', '\\.');
   const errors = result.log.split('\n').filter((l) => l.startsWith('::error'));
   assert.equal(errors.length, 3, result.log);
-  assert.match(errors[0], new RegExp(`^::error file=\\.github/workflows/ci\\.yml::infra-tools: maven@3\\.9 matches no version in ${index} on linux/arm64$`));
+  assert.match(errors[0], new RegExp(`^::error file=\\.github/workflows/ci\\.yml::infra-tools: maven@3\\.9 is not published for linux/arm64 yet in ${index} \\(only 3\\.9\\.16 on linux/amd64\\): upstream has not released it for that platform$`));
   assert.match(errors[1], new RegExp(`^::error file=\\.github/workflows/ci\\.yml::infra-tools: maven@99 matches no version in ${index} on linux/amd64, linux/arm64$`));
-  assert.match(errors[2], new RegExp(`^::error file=\\.github/actions/build/action\\.yml::infra-tools: maven@3\\.9\\.16 matches no version in ${index} on linux/arm64$`));
+  assert.match(errors[2], new RegExp(`^::error file=\\.github/actions/build/action\\.yml::infra-tools: maven@3\\.9\\.16 is not published for linux/arm64 yet in ${index} \\(only 3\\.9\\.16 on linux/amd64\\)`));
   assert.match(result.log, /^\.github\/workflows\/ci\.yml: maven@3\.10: 3\.10\.1 on linux\/amd64, 3\.10\.1 on linux\/arm64$/m);
   assert.deepEqual(await readdir(toolCache()), []);
 });

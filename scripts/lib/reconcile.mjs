@@ -22,6 +22,19 @@ export function checkCompleteness(plans) {
   if (gaps.length) throw new Error(`versions in range neither published nor tracked by a fix PR (R17), see the build jobs of this run:\n${gaps.join('\n')}`);
 }
 
+// A platform upstream has not published a version for after this long is reported (D62).
+const LATE_AFTER = 7 * 24 * 60 * 60 * 1000;
+
+// Versions published or planned without some platform upstream lacks for 7 days or more after their release, or with no release
+// date (D62): tracked by R17, they need no fix PR, but someone should know. plans: planTool's result per tool.
+export function latePlatforms(plans, now) {
+  return Object.values(plans).flatMap((plan) =>
+    plan.versions
+      .filter((v) => v.missing && (v.released === null || now - Date.parse(v.released) >= LATE_AFTER))
+      .map((v) => `${plan.tool} ${v.version}: not on ${v.missing.join(', ')} upstream, ${v.released === null ? 'no release date' : `released ${v.released.slice(0, 10)}`}`),
+  );
+}
+
 // plans: planTool's result per tool, once the run's builds are pushed. Every version whose tool image exists (reason
 // published) is recorded when the catalog lacks it at that revision, whether this run or an earlier one that failed before
 // its record commit pushed it; failed builds stay planned and are not recorded.
@@ -36,7 +49,9 @@ export async function recordRun({ tools, catalogs, plans, now, registry, readToo
   for (const tool of tools) {
     const entries = catalogs[tool.name] ?? [];
     const plan = plans[tool.name];
-    const targets = plan.versions.filter((v) => v.reason === 'published').map((v) => buildTarget(tool, v.version));
+    const targets = plan.versions
+      .filter((v) => v.reason === 'published')
+      .map((v) => ({ ...buildTarget(tool, v.version, { revision: v.revision }), platforms: v.platforms }));
     const recorded = (t) => entries.some((e) => e.version === t.version && e.revision >= t.revision);
     for (const t of targets.filter((t) => !recorded(t))) {
       const commit = await buildCommit({ tool, recorded: t, registry });

@@ -1,6 +1,6 @@
 // Pull request checks (spec §5.4): what a PR changing tools or their build would publish, before it is merged.
 import { mergeCatalog } from './catalog.mjs';
-import { planTool } from './plan.mjs';
+import { highestRevision, planTool } from './plan.mjs';
 import { buildIndex, releaseNotes } from './release.mjs';
 import { isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions, majorOf } from './versions.mjs';
@@ -23,23 +23,40 @@ function imageFiles(tool, files, base) {
     });
 }
 
+// Manual revisions the PR sets (added or changed in a line's revisions) that are not above the highest published revision of
+// their version (D62): published tool images never change, so it would build nothing; the reconciler can have raised the
+// revision itself when it added a platform, which tool.json does not show. tags: the published tags of the registry.
+function staleRevisions(tool, base, tags) {
+  const revisions = (t) => Object.assign({}, ...Object.values(t?.publish.lines ?? {}).map((line) => line.revisions ?? {}));
+  const before = revisions(base);
+  return Object.entries(revisions(tool))
+    .filter(([version, revision]) => before[version] !== revision && revision <= highestRevision(tags, tool.name, version))
+    .map(([version, revision]) => {
+      const highest = highestRevision(tags, tool.name, version);
+      return `${tool.name} ${version}: revision ${revision} is not above r${highest}, its highest published revision, so nothing would be built; set it to ${highest + 1} or more in tools/${tool.name}/tool.json`;
+    });
+}
+
 // tools: every tool definition at the PR head; baseTools: the PR base's, by name. changedFiles: paths changed by the PR.
-// plan: planTool's options (lookup, tagExists, now). catalogs: the catalog entries of every tool, by name. previousRelease:
+// plan: planTool's options (lookup, tags, platformsOf, now). catalogs: the catalog entries of every tool, by name. previousRelease:
 // the index and version of the latest release (none: { index: [] }). toolImageLayers(tag): the layers of a published tool
 // image (Registry.toolImageLayers). repository: owner/name, for tool release links. fixPrs: the versions fix PRs track, by
 // tool (lib/fix-pr.mjs trackedVersions): planned as the reconciler plans them, those of a fix PR closed without merge ignored.
 // Returns:
 // - builds: the dry run, the planned versions of every changed tool plus its latest published version per major (catalog
 //   entries, built by scripts/build.mjs even when the tool definition no longer publishes them);
+// - errors: manual revisions the PR sets that are not above the highest published revision of their version;
 // - warnings: published versions whose build files changed without a revision bump (published tool images never change);
 // - notes: the release notes of the next release once the planned versions are published, or null when no tool changed.
 export async function checkPullRequest({ tools, baseTools, changedFiles, plan: planOptions, catalogs, previousRelease, toolImageLayers, repository, fixPrs = {} }) {
   const { index: previousIndex, version: previousVersion } = previousRelease;
   const builds = [];
+  const errors = [];
   const warnings = [];
   const planned = {};
   const changedTools = tools.filter((t) => toolFiles(t, changedFiles).length);
   for (const tool of changedTools) {
+    errors.push(...staleRevisions(tool, baseTools[tool.name], planOptions.tags));
     const plan = await planTool(tool, { ...planOptions, fixPrs: fixPrs[tool.name] });
     planned[tool.name] = plan.versions.filter((v) => v.decision === 'publish');
     const plannedVersions = new Set(planned[tool.name].map((v) => v.version));
@@ -57,27 +74,33 @@ export async function checkPullRequest({ tools, baseTools, changedFiles, plan: p
       const m = majorOf(e.version);
       if (!latest.has(m) || compareVersions(e.version, latest.get(m).version) > 0) latest.set(m, e);
     }
+    // Built on the platforms the reconciler would build, or a published version on those it holds.
+    const build = (version, revision, tag, platforms, reason) => ({ tool: tool.name, version, revision, tag, platforms: platforms.join(','), reason });
     const toolBuilds = [
-      ...planned[tool.name].map((v) => ({ tool: tool.name, version: v.version, tag: v.tag, reason: `planned: ${v.reason}` })),
-      ...[...latest].map(([m, e]) => ({ tool: tool.name, version: e.version, tag: e.tag, reason: `latest published of major ${m}` })),
+      ...planned[tool.name].map((v) => build(v.version, v.revision, v.tag, v.platforms, `planned: ${v.reason}`)),
+      ...[...latest].map(([m, e]) => build(e.version, e.revision, e.tag, e.platforms ?? PLATFORMS, `latest published of major ${m}`)),
     ];
     builds.push(...toolBuilds.sort((a, b) => compareVersions(a.version, b.version)));
   }
-  if (!changedTools.length) return { builds, warnings, notes: null };
+  if (!changedTools.length) return { builds, errors, warnings, notes: null };
 
   // The next index as the release would build it, once the reconciler has recorded the planned versions. Planned tool images
-  // do not exist yet: their layers are placeholders, new to the index.
+  // do not exist yet: the layers they build are placeholders, new to the index, and those they reuse are the published ones.
   const layers = {};
   for (const e of previousIndex) (layers[e.tag] ??= {})[e.platform] = { digest: e.digest, size: e.size, mediaType: e.mediaType };
   const nextCatalogs = {};
   for (const tool of tools) {
-    const toPublish = planned[tool.name] ?? [];
+    const toPublish = [];
+    for (const v of planned[tool.name] ?? []) {
+      const reused = v.reuse ? await toolImageLayers(v.reuse) : {};
+      layers[v.tag] = { ...reused, ...Object.fromEntries(v.platforms.map((p) => [p, { digest: `planned:${v.tag}`, size: 0, mediaType: null }])) };
+      toPublish.push({ ...v, platforms: PLATFORMS.filter((p) => layers[v.tag][p]) });
+    }
     nextCatalogs[tool.name] = mergeCatalog(tool, catalogs[tool.name] ?? [], toPublish, { now: new Date(planOptions.now).toISOString() }).entries;
-    for (const { tag } of toPublish) layers[tag] = Object.fromEntries(PLATFORMS.map((p) => [p, { digest: `planned:${tag}`, size: 0, mediaType: null }]));
     for (const e of nextCatalogs[tool.name]) if (!e.retired && !layers[e.tag]) layers[e.tag] = await toolImageLayers(e.tag);
   }
   const after = buildIndex({ tools, catalogs: nextCatalogs, previousIndex, layers });
-  return { builds, warnings, notes: releaseNotes({ previousVersion, repository, before: previousIndex, after }) };
+  return { builds, errors, warnings, notes: releaseNotes({ previousVersion, repository, before: previousIndex, after }) };
 }
 
 // Marks the release notes preview comment, one per PR, updated on each push.
@@ -86,12 +109,13 @@ const MARKER = '<!-- infra-tools: pull request checks -->';
 const BOT = 'github-actions[bot]';
 
 // The release notes preview comment of a checkPullRequest result, or null when no tool changed.
-export function previewComment({ builds, warnings, notes }) {
+export function previewComment({ builds, errors = [], warnings, notes }) {
   if (notes === null) return null;
   return [
     MARKER,
     '## Next release preview',
     '',
+    ...errors.flatMap((e) => ['> [!CAUTION]', `> ${e}`, '']),
     ...warnings.flatMap((w) => ['> [!WARNING]', `> ${w}`, '']),
     '**Dry run** (built and tested on every platform, never pushed):',
     '',

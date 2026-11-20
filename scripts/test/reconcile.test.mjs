@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import { checkCatalogTags, checkCompleteness, commitMessage, recordRun } from '../lib/reconcile.mjs';
+import { checkCatalogTags, checkCompleteness, commitMessage, latePlatforms, recordRun } from '../lib/reconcile.mjs';
 import { Registry } from '../lib/registry.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 import { catalogEntry } from './catalog-entry.mjs';
@@ -135,4 +135,48 @@ test('the completeness check fails when a version in range is neither published 
   plans.node.versions[4] = { version: '26.11.5', decision: 'skip', reason: 'published' };
   plans.maven.versions[0] = { version: '3.9.16', decision: 'skip', reason: 'published' };
   checkCompleteness(plans);
+});
+
+test('a revision that adds platforms publishes them; a version upstream lacks a platform for is recorded with its platforms (D62)', async () => {
+  const catalogs = { node: [{ ...catalogEntry(node, '26.11.2', 1, '26'), platforms: ['linux/amd64'] }], maven: [] };
+  const all = ['linux/amd64', 'linux/arm64'];
+  const plans = {
+    node: {
+      tool: 'node',
+      upstream: null,
+      versions: [
+        { version: '26.11.2', decision: 'skip', reason: 'published', line: '26', revision: 2, tag: 'node-26.11.2-r2', platforms: all },
+        { version: '26.11.3', decision: 'skip', reason: 'published', line: '26', revision: 1, tag: 'node-26.11.3-r1', platforms: ['linux/amd64'], missing: ['linux/arm64'], released: now },
+      ],
+    },
+    maven: { tool: 'maven', upstream: null, versions: [] },
+  };
+  const commits = [pushed('node-26.11.2-r2'), pushed('node-26.11.3-r1')];
+  const readToolDefinitionAt = async (name, commit) => (commits.includes(commit) ? node : assert.fail(`${name} at ${commit}`));
+  const run = await recordRun({ tools: [maven, node], catalogs, plans, now, registry: registry(), readToolDefinitionAt });
+  assert.deepEqual(run.catalogs.node.map((e) => [e.version, e.revision, e.tag, e.platforms]), [['26.11.2', 2, 'node-26.11.2-r2', undefined], ['26.11.3', 1, 'node-26.11.3-r1', ['linux/amd64']]]);
+  assert.deepEqual(run.changes, [
+    { type: 'feat', tool: 'node', text: 'publish 26.11.2 for arm64 (r2)' },
+    { type: 'feat', tool: 'node', text: 'publish 26.11.3 for amd64' },
+  ]);
+});
+
+test('a platform upstream lacks for 7 days or more after the release, or with no release date, is reported (D62)', () => {
+  const day = 24 * 60 * 60 * 1000;
+  const at = Date.parse(now);
+  const plans = {
+    java: {
+      tool: 'java',
+      versions: [
+        { version: '21.0.12+8', decision: 'skip', reason: 'published', missing: ['linux/arm64'], released: new Date(at - 8 * day).toISOString() },
+        { version: '21.0.13+5', decision: 'publish', reason: 'new', missing: ['linux/arm64'], released: new Date(at - 6 * day).toISOString() },
+        { version: '21.0.14+2', decision: 'publish', reason: 'new', missing: ['linux/arm64'], released: null },
+        { version: '21.0.15+1', decision: 'skip', reason: 'published' },
+      ],
+    },
+  };
+  assert.deepEqual(latePlatforms(plans, at), [
+    'java 21.0.12+8: not on linux/arm64 upstream, released 2026-10-06',
+    'java 21.0.14+2: not on linux/arm64 upstream, no release date',
+  ]);
 });

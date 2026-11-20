@@ -211,3 +211,13 @@ test('the release notes get the tool tables after the changelog of release-pleas
   assert.equal(releaseBody(body, 'other\n'), `${changelog}\n<!-- infra-tools: tools -->\n## Tools\n\nother\n`);
   assert.equal(releaseBody(null, notes), `<!-- infra-tools: tools -->\n## Tools\n\n${notes}`);
 });
+
+test('a catalog version upstream lacks a platform for is indexed on its platforms only (D62)', () => {
+  const entries = buildIndex({
+    tools: [maven],
+    catalogs: { maven: [catalogEntry(maven, '3.9.16', 1, { platforms: ['linux/amd64'] })] },
+    previousIndex: [],
+    layers: { 'maven-3.9.16-r1': { 'linux/amd64': layer('sha256:m-amd64') } },
+  });
+  assert.deepEqual(entries.map((e) => `${e.version} ${e.platform}`), ['3.9.16 linux/amd64']);
+});
