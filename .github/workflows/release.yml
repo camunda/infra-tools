@@ -130,10 +130,74 @@ jobs:
           echo "A catalog version whose tag is missing needs its tool image published again (revision bump) or its version retired."
         } >>"${GITHUB_STEP_SUMMARY}"
 
+  # One matrix entry per mirror filled by copy, with its login step (ADR 0007, D61).
+  mirror:
+    name: Copy the releases to ${{ matrix.name }}
+    needs: publish
+    permissions:
+      contents: read
+      packages: read # read the release indexes on ghcr.io
+      id-token: write # OIDC login to the mirror's cloud
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - name: gar
+          repository: europe-west1-docker.pkg.dev/ci-30-162810/infra-tools/camunda/infra-tools
+          user: oauth2accesstoken
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Set up Node.js
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version-file: .tool-versions
+        cache: npm
+        cache-dependency-path: scripts/package-lock.json
+
+    - name: Install dependencies
+      run: npm ci --prefix scripts
+
+    # infra-tools-mirror-sa can only write the GKE mirror (camunda/infra-core).
+    - name: Authenticate to Google Cloud
+      id: gar
+      if: matrix.name == 'gar'
+      uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+      with:
+        workload_identity_provider: projects/502682377344/locations/global/workloadIdentityPools/ci-gha-workload-pool/providers/gha-provider
+        service_account: infra-tools-mirror-sa@ci-30-162810.iam.gserviceaccount.com
+        token_format: access_token
+        create_credentials_file: false # only the access token is used
+
+    - name: Copy the missing release indexes
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        MIRROR_TOKEN: ${{ steps.gar.outputs.access_token }}
+        MIRROR: ${{ matrix.repository }}
+        MIRROR_USER: ${{ matrix.user }}
+      run: node scripts/index.mjs mirror --image "${IMAGE}" --mirror "${MIRROR}" --user "${MIRROR_USER}"
+
+    - name: Report failure
+      if: failure()
+      env:
+        MIRROR: ${{ matrix.repository }}
+      run: |
+        {
+          echo "## Copy to ${MIRROR} failed"
+          echo
+          echo "Inspect the failed step in the job logs. The releases are published on ghcr.io: runners using this mirror fall back to it."
+          echo "The next run copies them: the next push to main, or a rerun of this one."
+        } >>"${GITHUB_STEP_SUMMARY}"
+
   # Retry transient failures (e.g. GitHub API or registry errors); the run fails after the last attempt.
   rerun-failed-jobs:
     name: Rerun failed jobs
-    needs: [release-please, publish]
+    needs: [release-please, publish, mirror]
     if: failure() && fromJSON(github.run_attempt) < 3
     permissions:
       id-token: write # Vault OIDC/JWT auth
@@ -158,6 +222,7 @@ jobs:
     needs:
     - release-please
     - publish
+    - mirror
     - rerun-failed-jobs
     runs-on: ubuntu-latest
     timeout-minutes: 5

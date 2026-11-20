@@ -20,7 +20,7 @@ inputs:
     default: ${{ github.token }}
   index:
     description: >-
-      Index to install from, `<registry>/<repository>:<tag>` (tests, mirrors). Default: the pinned release's, `ghcr.io/camunda/infra-tools:X.Y.Z-tools`.
+      Index to install from, `<registry>/<repository>:<tag>` (tests; mirrors: `INFRA_TOOLS_MIRROR`). Default: the pinned release's, `ghcr.io/camunda/infra-tools:X.Y.Z-tools`.
     default: ''
   summary:
     description: '`true` adds a table of the selected tools (version, result, tool cache path) to the job summary.'

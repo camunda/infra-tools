@@ -5,6 +5,9 @@
 //   --image, then the draft published. tools.json is written to --out (default build/out/release) before its upload. Uses gh
 //   and its token (GH_TOKEN, else GITHUB_TOKEN) for GitHub, GITHUB_TOKEN for the registry.
 //
+// node index.mjs mirror --image <registry>/<repository> --mirror <registry>/<repository> --user <name>
+//   Copies the release indexes the mirror lacks (lib/mirror.mjs), logged in as --user with MIRROR_TOKEN.
+//
 // node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>
 //   Prints the index the action tests install from (lib/release.mjs latestIndexTag): the latest published release's, up to
 //   the release-please manifest version at --ref, or the tracer index before the first one. Uses gh and its token, and
@@ -17,6 +20,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
+import { mirrorReleases } from './lib/mirror.mjs';
 import { publishIndex } from './lib/publish-index.mjs';
 import { publishRelease } from './lib/publish-release.mjs';
 import { Registry } from './lib/registry.mjs';
@@ -25,10 +29,11 @@ import { ghApi, ghJson, readToolDefinition, RELEASE_MANIFEST, ROOT } from './lib
 
 const USAGE = {
   release: 'node index.mjs release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]',
+  mirror: 'node index.mjs mirror --image <registry>/<repository> --mirror <registry>/<repository> --user <name>',
   'latest-index': 'node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>',
   tracer: 'node index.mjs tracer --index <registry>/<repository>:<tag> <tool>@<version>...',
 };
-const COMMANDS = { release: publishReleases, 'latest-index': printLatestIndex, tracer: addToTracerIndex };
+const COMMANDS = { release: publishReleases, mirror: copyToMirror, 'latest-index': printLatestIndex, tracer: addToTracerIndex };
 
 const [command, ...args] = process.argv.slice(2);
 if (!COMMANDS[command]) throw new Error(`usage:\n${Object.values(USAGE).join('\n')}`);
@@ -49,6 +54,15 @@ async function publishReleases(args) {
   const unpublished = unpublishedReleases(releases);
   if (!unpublished.length) return console.log('every release is published');
   for (const release of unpublished) await publishOneRelease(release, values);
+}
+
+async function copyToMirror(args) {
+  const { values } = options('mirror', args, { required: ['image', 'mirror', 'user'] });
+  // Else the client would send GITHUB_TOKEN to the mirror.
+  if (!process.env.MIRROR_TOKEN) throw new Error('mirror needs MIRROR_TOKEN, a token of the mirror');
+  const mirror = new Registry(values.mirror, { token: process.env.MIRROR_TOKEN, user: values.user });
+  const copied = await mirrorReleases(new Registry(values.image), mirror);
+  console.log(copied.length ? `copied to ${values.mirror}: ${copied.join(', ')}` : `${values.mirror} holds every release index`);
 }
 
 // Publishes one release (a GitHub release: { id, tag_name, target_commitish, body, draft }).
