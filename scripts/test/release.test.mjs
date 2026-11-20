@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, latestIndexTag, previousRelease, releaseBody, releasedVersion, releaseNotes, toolsJson, unpublishedReleases } from '../lib/release.mjs';
+import { buildIndex, latestIndexTag, latestPublishedRelease, previousRelease, releaseBody, releasedVersion, releaseNotes, toolsJson, unpublishedReleases } from '../lib/release.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const java = parseToolDefinition('java', {
@@ -136,10 +136,22 @@ test('the latest release is the version of the release-please manifest, none bef
   assert.equal(releasedVersion(null), undefined);
 });
 
-test('the action tests install from the index of the latest release, or from the tracer index before the first release', () => {
-  assert.equal(latestIndexTag({ '.': '0.3.0' }), '0.3.0-tools');
-  assert.equal(latestIndexTag({ '.': '0.0.0' }), 'tracer-tools');
-  assert.equal(latestIndexTag(null), 'tracer-tools');
+test('the latest published release is the manifest version once its index is pushed, the release before it until then', () => {
+  const tags = ['0.2.0-tools', '0.3.0-tools', 'maven-3.9.16-r2', 'tracer-tools', 'test-1138-tools'];
+  assert.equal(latestPublishedRelease({ '.': '0.3.0' }, tags), '0.3.0');
+  // The release PR merge bumps the manifest before the release's index is pushed.
+  assert.equal(latestPublishedRelease({ '.': '0.4.0' }, tags), '0.3.0');
+  // A base before a later release keeps its own release.
+  assert.equal(latestPublishedRelease({ '.': '0.2.0' }, tags), '0.2.0');
+  assert.equal(latestPublishedRelease({ '.': '0.1.0' }, tags), undefined);
+  assert.equal(latestPublishedRelease({ '.': '0.0.0' }, tags), undefined);
+  assert.equal(latestPublishedRelease(null, tags), undefined);
+});
+
+test('the action tests install from the index of the latest published release, or from the tracer index before the first one', () => {
+  assert.equal(latestIndexTag({ '.': '0.4.0' }, ['0.3.0-tools']), '0.3.0-tools');
+  assert.equal(latestIndexTag({ '.': '1.0.0' }, ['tracer-tools']), 'tracer-tools');
+  assert.equal(latestIndexTag(null, ['0.3.0-tools']), 'tracer-tools');
 });
 
 test('every draft release and every release without tools.json is left to publish, oldest first; tool releases are not releases', () => {

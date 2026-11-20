@@ -10,10 +10,18 @@ export function releasedVersion(manifest) {
   return version === '0.0.0' ? undefined : version;
 }
 
-// The tag of the index the action tests install from, given the release-please manifest (releasedVersion): the latest
-// release's, X.Y.Z-tools; until the first release, the test index the Publish tool workflow fills.
-export function latestIndexTag(manifest) {
+// The latest published release, given the release-please manifest (releasedVersion) and the tags of the registry: the highest
+// X.Y.Z among the index tags (X.Y.Z-tools) up to the manifest version. The release PR merge bumps the manifest before the
+// release's index is pushed (D60): until then, the release before it. None before the first release's index.
+export function latestPublishedRelease(manifest, tags) {
   const version = releasedVersion(manifest);
+  return version && releaseVersions(tags).filter((v) => compareVersions(v, version) <= 0).at(-1);
+}
+
+// The tag of the index the action tests install from (latestPublishedRelease): the latest published release's, X.Y.Z-tools;
+// before the first one, the test index the Publish tool workflow fills.
+export function latestIndexTag(manifest, tags) {
+  const version = latestPublishedRelease(manifest, tags);
   return version ? `${version}-tools` : 'tracer-tools';
 }
 
@@ -29,12 +37,17 @@ export function unpublishedReleases(releases) {
 // The release before `version`: the highest X.Y.Z below it among the index tags (X.Y.Z-tools) of the registry, none before the
 // first release.
 export function previousRelease(tags, version) {
-  return tags
-    .map((t) => t.match(/^(\d+\.\d+\.\d+)-tools$/)?.[1])
-    .filter((v) => v && compareVersions(v, version) < 0)
-    .sort(compareVersions)
+  return releaseVersions(tags)
+    .filter((v) => compareVersions(v, version) < 0)
     .at(-1);
 }
+
+// The releases X.Y.Z of the index tags (X.Y.Z-tools) among the tags of the registry, oldest first.
+const releaseVersions = (tags) =>
+  tags
+    .map((t) => t.match(/^(\d+\.\d+\.\d+)-tools$/)?.[1])
+    .filter(Boolean)
+    .sort(compareVersions);
 
 // One tool version, and one tool version on one platform.
 const versionKey = (e) => `${e.tool}|${e.version}`;
