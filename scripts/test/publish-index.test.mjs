@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
 import { sha256 } from '../lib/oci.mjs';
-import { publishIndex, publishRelease } from '../lib/publish-index.mjs';
+import { publishIndex, publishReleaseIndex } from '../lib/publish-index.mjs';
 import { Registry } from '../lib/registry.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 import { catalogEntry } from './catalog-entry.mjs';
@@ -107,7 +107,7 @@ test('a release index is the previous release index plus the catalog minus retir
   fake.addIndex('0.10.0-tools', []);
   fake.addIndex('tracer-tools', []);
   fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
-  const release = await publishRelease(registry, '0.3.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
+  const release = await publishReleaseIndex(registry, '0.3.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
   assert.equal(release.previousVersion, '0.2.0');
   assert.deepEqual(summary(release.before), summary(fake.indexEntries('0.2.0-tools')));
   assert.deepEqual(summary(fake.indexEntries('0.3.0-tools')), [
@@ -121,7 +121,7 @@ test('a release index is the previous release index plus the catalog minus retir
 test('a release index uploads no layer: it references the tool image layers already pushed', async () => {
   fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
   const blobs = fake.blobs.size;
-  await publishRelease(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
+  await publishReleaseIndex(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
   // The empty config of the index manifests, at most.
   assert.ok(fake.blobs.size - blobs <= 1);
   assert.ok(fake.requests.filter((r) => r.startsWith('POST ')).length <= 1);
@@ -129,7 +129,7 @@ test('a release index uploads no layer: it references the tool image layers alre
 
 test('the first release has no previous index', async () => {
   fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
-  const release = await publishRelease(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
+  const release = await publishReleaseIndex(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
   assert.equal(release.previousVersion, undefined);
   assert.deepEqual(release.before, []);
   assert.equal(fake.indexEntries('0.1.0-tools').length, 2);
@@ -139,11 +139,11 @@ test('the previous release is found among index tags listed over several pages',
   fake.pageSize = 2;
   for (const version of ['0.1.0', '0.2.0', '0.3.0', '0.4.0', '1.0.0']) fake.addIndex(`${version}-tools`, []);
   fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
-  const release = await publishRelease(registry, '0.5.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
+  const release = await publishReleaseIndex(registry, '0.5.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
   assert.equal(release.previousVersion, '0.4.0');
 });
 
 test('a catalog version without its tag fails the release and pushes no index', async () => {
-  await assert.rejects(publishRelease(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs }), { message: 'maven 3.9.16: tag maven-3.9.16-r2 not found' });
+  await assert.rejects(publishReleaseIndex(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs }), { message: 'maven 3.9.16: tag maven-3.9.16-r2 not found' });
   assert.equal(fake.manifest('0.1.0-tools'), undefined);
 });

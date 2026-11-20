@@ -66,7 +66,7 @@ _Avoid_: published list, inventory
 A GitHub release documenting one published tool image.
 
 **Release**:
-A versioned release `X.Y.Z` of the action together with its index.
+A versioned release `X.Y.Z` of the action together with its index; a draft, without its tag, until it is published.
 _Avoid_: toolset release, toolset version
 
 **Index**:

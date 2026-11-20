@@ -1,12 +1,9 @@
 // Release indexes (spec §5.5), one command each:
 //
 // node index.mjs release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]
-//   Publishes every release (X.Y.Z) without tools.json, oldest first, once release-please created it: pushes its index to
-//   --image (lib/publish-index.mjs publishRelease) from the tool definitions and the catalog at its tag, appends the Added /
-//   Replaced / Retired tables to its notes and attaches tools.json, written to --out (default build/out/release) first.
-//   tools.json is attached last: a release that has it uploaded is published, and is left alone; a release whose publication
-//   failed is completed by the next run, before any later release, replacing the tools.json a failed upload left. Uses gh and
-//   its token (GH_TOKEN or GITHUB_TOKEN).
+//   Publishes every draft release (X.Y.Z) release-please created, oldest first (lib/publish-release.mjs): its index pushed to
+//   --image, then the draft published. tools.json is written to --out (default build/out/release) before its upload. Uses gh
+//   and its token (GH_TOKEN, else GITHUB_TOKEN) for GitHub, GITHUB_TOKEN for the registry.
 //
 // node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>
 //   Prints the index the action tests install from (lib/release.mjs latestIndexTag): the latest release's, from the
@@ -19,11 +16,11 @@ import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { publishIndex, publishRelease } from './lib/publish-index.mjs';
+import { publishIndex } from './lib/publish-index.mjs';
+import { publishRelease } from './lib/publish-release.mjs';
 import { Registry } from './lib/registry.mjs';
-import { latestIndexTag, releaseBody, releaseNotes, toolsJson, unpublishedReleases } from './lib/release.mjs';
+import { latestIndexTag, unpublishedReleases } from './lib/release.mjs';
 import { ghApi, ghJson, readToolDefinition, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
-import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const USAGE = {
   release: 'node index.mjs release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]',
@@ -46,35 +43,35 @@ function options(command, args, { required, defaults = {}, positionals = false }
 
 async function publishReleases(args) {
   const { values } = options('release', args, { required: ['image', 'repository'], defaults: { out: join(ROOT, 'build/out/release') } });
-  // With their assets' state: a failed upload can leave tools.json in the starter state.
+  // With the drafts and their assets' state: a failed upload can leave tools.json in the starter state.
   const releases = JSON.parse(ghApi('', '--paginate', '--slurp', `repos/${values.repository}/releases?per_page=100`)).flat();
   const unpublished = unpublishedReleases(releases);
   if (!unpublished.length) return console.log('every release is published');
   for (const release of unpublished) await publishOneRelease(release, values);
 }
 
-// Publishes one release (a GitHub release: { id, tag_name, body, html_url }).
+// Publishes one release (a GitHub release: { id, tag_name, target_commitish, body, draft }).
 async function publishOneRelease(release, { image, repository, out }) {
   const version = release.tag_name;
   const repo = `repos/${repository}`;
-  // The tool definitions and the catalog at the release tag: main may have moved since.
-  const file = (path) => ghJson(`${repo}/contents/${path}?ref=${version}`, { accept: 'application/vnd.github.raw+json' });
-  const names = ghJson(`${repo}/contents/tools?ref=${version}`)
-    .filter((e) => e.type === 'dir')
-    .map((e) => e.name);
-  const tools = names.map((name) => parseToolDefinition(name, file(`tools/${name}/tool.json`)));
-  const catalogs = Object.fromEntries(names.map((name) => [name, file(`published/${name}.json`) ?? []]));
-
-  const { entries, digest, previousVersion, before } = await publishRelease(new Registry(image), version, { tools, catalogs });
+  const github = {
+    toolNames: (ref) =>
+      ghJson(`${repo}/contents/tools?ref=${ref}`)
+        .filter((e) => e.type === 'dir')
+        .map((e) => e.name),
+    file: (path, ref) => ghJson(`${repo}/contents/${path}?ref=${ref}`, { accept: 'application/vnd.github.raw+json' }),
+    updateRelease: (id, fields) => ghJson(`${repo}/releases/${id}`, { method: 'PATCH', body: fields }),
+    uploadToolsJson: async ({ tag_name: tag }, content) => {
+      await mkdir(out, { recursive: true });
+      const asset = join(out, 'tools.json');
+      await writeFile(asset, content);
+      // --clobber: replaces the tools.json a failed upload left. gh finds a draft by its tag name.
+      execFileSync('gh', ['release', 'upload', tag, asset, '--clobber', '--repo', repository], { stdio: 'inherit' });
+    },
+  };
+  const { entries, digest, previousVersion, notes } = await publishRelease(release, { registry: new Registry(image), repository, github });
   console.log(`pushed ${image}:${version}-tools@${digest}: ${entries.length} tool layers (previous release: ${previousVersion ?? 'none'})`);
-  const notes = releaseNotes({ version, previousVersion, repository, before, after: entries });
-  ghJson(`${repo}/releases/${release.id}`, { method: 'PATCH', body: { body: releaseBody(release.body, notes) } });
-  await mkdir(out, { recursive: true });
-  const asset = join(out, 'tools.json');
-  await writeFile(asset, `${JSON.stringify(toolsJson({ version, image, entries }), null, 2)}\n`);
-  // --clobber: replaces the tools.json a failed upload left.
-  execFileSync('gh', ['release', 'upload', version, asset, '--clobber', '--repo', repository], { stdio: 'inherit' });
-  console.log(`release ${version} published: ${release.html_url}\n\n${notes}`);
+  console.log(`release ${version} published: https://github.com/${repository}/releases/tag/${version}\n\n${notes}`);
 }
 
 function printLatestIndex(args) {

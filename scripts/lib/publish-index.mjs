@@ -25,7 +25,7 @@ export async function publishIndex(registry, tag, toolVersions) {
 // retired versions, pushed as <version>-tools. catalogs: the catalog entries of every tool, by name. Throws, pushing
 // nothing, when a catalog version lost its tag. Returns the entries of the pushed index, its digest, and the previous release
 // (previousVersion, none for the first release) and its index entries (before).
-export async function publishRelease(registry, version, { tools, catalogs }) {
+export async function publishReleaseIndex(registry, version, { tools, catalogs }) {
   const previousVersion = previousRelease(await registry.tags(), version);
   const before = previousVersion ? await readIndex(registry, `${previousVersion}-tools`) : [];
   const layers = {};
