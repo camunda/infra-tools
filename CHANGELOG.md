@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/camunda/infra-tools/compare/1.0.0...1.1.0) (2026-11-20)
+
+
+### Features
+
+* install from the runner set's mirror, filled by the release ([74f1bc3](https://github.com/camunda/infra-tools/commit/74f1bc3ad8321957f8a21205102b921e137569cf))
+
 ## 1.0.0 (2026-11-19)
 
 
