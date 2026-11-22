@@ -22,7 +22,7 @@ repos:
 # Every audit, with the pinning policy in .github/zizmor.yml. Online audits run when a GitHub token is set
 # (GH_TOKEN or ZIZMOR_GITHUB_TOKEN), as in the Lint workflow, and are skipped otherwise.
 - repo: https://github.com/zizmorcore/zizmor-pre-commit
-  rev: v1.32.0
+  rev: v1.33.0
   hooks:
   - id: zizmor
     args: ["--no-progress", "--config=.github/zizmor.yml"]
