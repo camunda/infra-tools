@@ -168,6 +168,15 @@ test('every draft release and every release without tools.json is left to publis
   assert.deepEqual(unpublishedReleases([release('0.9.0', ['tools.json'])]), []);
 });
 
+test('a draft that lost its tag name is left to publish, first, instead of being skipped', () => {
+  // An update of a draft without its tag name resets it to untagged-<hash>.
+  const releases = [
+    { tag_name: '0.9.0', draft: true, assets: [] },
+    { tag_name: 'untagged-4f1cdd3a73e23735f2b7', draft: true, assets: [] },
+  ];
+  assert.deepEqual(unpublishedReleases(releases).map((r) => r.tag_name), ['untagged-4f1cdd3a73e23735f2b7', '0.9.0']);
+});
+
 test('a draft release whose tools.json is uploaded is left to publish', () => {
   // Its publication failed after the upload, before the draft was published.
   const release = { tag_name: '0.9.0', draft: true, assets: [{ name: 'tools.json', state: 'uploaded' }] };

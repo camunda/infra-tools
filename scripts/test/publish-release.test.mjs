@@ -61,11 +61,14 @@ test('a draft release is published from its commit: index pushed, then notes and
   const [notes, upload, publish] = github.calls;
   assert.equal(github.calls.length, 3);
   assert.equal(notes.id, 7);
+  // An update of a draft without its tag name would reset it to untagged-<hash>.
+  assert.equal(notes.tag_name, '0.1.0');
+  assert.equal(notes.target_commitish, COMMIT);
   assert.equal(notes.indexed, true);
   assert.ok(notes.body.startsWith('## Features\n\n* maven\n\n'));
   assert.match(notes.body, /## Tools/);
   assert.deepEqual(upload, { upload: '0.1.0', release: '0.1.0', indexed: true });
-  assert.deepEqual(publish, { id: 7, draft: false, make_latest: 'true', indexed: true });
+  assert.deepEqual(publish, { id: 7, tag_name: '0.1.0', target_commitish: COMMIT, draft: false, make_latest: 'true', indexed: true });
 });
 
 for (const fail of ['files', 'index', 'notes', 'upload']) {
@@ -77,6 +80,14 @@ for (const fail of ['files', 'index', 'notes', 'upload']) {
     assert.equal(github.calls.some((c) => c.draft === false), false);
   });
 }
+
+test('a draft that lost its tag name fails before anything is pushed or changed, with the command that restores it', async () => {
+  const github = fakeGitHub();
+  const broken = { ...draft, name: 'v0.1.0', tag_name: 'untagged-4f1cdd3a73e23735f2b7' };
+  await assert.rejects(publishRelease(broken, { registry, repository: 'camunda/infra-tools', github }), /lost its tag name .*-f tag_name=<X\.Y\.Z> -f target_commitish=1279cdf/);
+  assert.deepEqual(github.calls, []);
+  assert.equal(fake.manifest('0.1.0-tools'), undefined);
+});
 
 test('a published release without tools.json gets it from its tag and is left published as it was', async () => {
   // A draft published by hand before its publication: its tag exists, and its target may be a branch that moved since.

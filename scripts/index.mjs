@@ -16,7 +16,6 @@
 // node index.mjs tracer --index <registry>/<repository>:<tag> <tool>@<version>...
 //   Until the first release, for the manual Publish tool workflow: adds the tool images of the given tool versions to the
 //   index at --index (lib/publish-index.mjs publishIndex) and pushes it.
-import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
@@ -76,12 +75,15 @@ async function publishOneRelease(release, { image, repository, out }) {
         .map((e) => e.name),
     file: (path, ref) => ghJson(`${repo}/contents/${path}?ref=${ref}`, { accept: 'application/vnd.github.raw+json' }),
     updateRelease: (id, fields) => ghJson(`${repo}/releases/${id}`, { method: 'PATCH', body: fields }),
-    uploadToolsJson: async ({ tag_name: tag }, content) => {
+    uploadToolsJson: async ({ id }, content) => {
       await mkdir(out, { recursive: true });
       const asset = join(out, 'tools.json');
       await writeFile(asset, content);
-      // --clobber: replaces the tools.json a failed upload left. gh finds a draft by its tag name.
-      execFileSync('gh', ['release', 'upload', tag, asset, '--clobber', '--repo', repository], { stdio: 'inherit' });
+      // By release id, not by tag name, which a draft can lose. Replaces the tools.json a failed upload left.
+      for (const a of ghJson(`${repo}/releases/${id}/assets`)) {
+        if (a.name === 'tools.json') ghJson(`${repo}/releases/assets/${a.id}`, { method: 'DELETE' });
+      }
+      ghApi('', '--method', 'POST', '-H', 'Content-Type: application/json', `https://uploads.github.com/${repo}/releases/${id}/assets?name=tools.json`, '--input', asset);
     },
   };
   const { entries, digest, previousVersion, notes } = await publishRelease(release, { registry: new Registry(image), repository, github });
