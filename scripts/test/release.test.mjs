@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, latestReleaseVersion, previousRelease, releaseBody, releaseNotes, toolsJson, unpublishedReleases } from '../lib/release.mjs';
+import { buildIndex, latestReleaseVersion, previousRelease, releaseBody, releaseNotes, toolsJson, draftRelease } from '../lib/release.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const java = parseToolDefinition('java', {
@@ -138,39 +138,31 @@ test('the latest release is the X.Y.Z of the latest published GitHub release; no
   });
 });
 
-test('every draft release and every release without tools.json is left to publish, oldest first; tool releases are not releases', () => {
-  const release = (tag, assets = [], extra = {}) => ({ tag_name: tag, draft: false, assets: assets.map((name) => ({ name, state: 'uploaded' })), ...extra });
-  const releases = [
-    release('0.10.0'),
-    release('java-21.0.12-8-r1', ['java.tar']),
-    release('0.9.0', ['tools.json']),
-    release('0.2.0', ['notes.txt']),
-    release('0.11.0', [], { draft: true }),
-    release('maven-3.9.16-r1'),
-  ];
-  assert.deepEqual(unpublishedReleases(releases).map((r) => r.tag_name), ['0.2.0', '0.10.0', '0.11.0']);
-  assert.deepEqual(unpublishedReleases([release('0.9.0', ['tools.json'])]), []);
+test('the draft release is the only draft; tool releases and published releases are not drafts', () => {
+  const release = (tag, extra = {}) => ({ id: 1, name: tag, tag_name: tag, target_commitish: 'abc123', draft: false, ...extra });
+  assert.equal(draftRelease([release('1.1.0'), release('maven-3.9.16-r1')], 'camunda/infra-tools'), null);
+  const draft = release('1.2.0', { id: 7, draft: true });
+  assert.equal(draftRelease([release('1.1.0'), draft, release('maven-3.9.16-r1')], 'camunda/infra-tools'), draft);
 });
 
-test('a draft that lost its tag name is left to publish, first, instead of being skipped', () => {
+test('a second draft fails, naming every draft, instead of being published later', () => {
+  const releases = [
+    { id: 5, name: '1.2.0', tag_name: '1.2.0', target_commitish: 'aaa', draft: true },
+    { id: 6, name: '1.3.0', tag_name: '1.3.0', target_commitish: 'bbb', draft: true },
+  ];
+  assert.throws(() => draftRelease(releases, 'camunda/infra-tools'), {
+    message: '2 draft releases, 1 at most (ADR 0013): 1.2.0 (id 5, tag name 1.2.0), 1.3.0 (id 6, tag name 1.3.0)',
+  });
+});
+
+test('a draft that lost its tag name fails, with the command that restores it, instead of being skipped', () => {
   // An update of a draft without its tag name resets it to untagged-<hash>.
-  const releases = [
-    { tag_name: '0.9.0', draft: true, assets: [] },
-    { tag_name: 'untagged-4f1cdd3a73e23735f2b7', draft: true, assets: [] },
-  ];
-  assert.deepEqual(unpublishedReleases(releases).map((r) => r.tag_name), ['untagged-4f1cdd3a73e23735f2b7', '0.9.0']);
-});
-
-test('a draft release whose tools.json is uploaded is left to publish', () => {
-  // Its publication failed after the upload, before the draft was published.
-  const release = { tag_name: '0.9.0', draft: true, assets: [{ name: 'tools.json', state: 'uploaded' }] };
-  assert.deepEqual(unpublishedReleases([release]).map((r) => r.tag_name), ['0.9.0']);
-});
-
-test('a release whose tools.json upload failed is left to publish', () => {
-  // A failed upload can leave the asset in the starter state, empty.
-  const release = { tag_name: '0.9.0', draft: false, assets: [{ name: 'tools.json', state: 'starter' }] };
-  assert.deepEqual(unpublishedReleases([release]).map((r) => r.tag_name), ['0.9.0']);
+  const draft = { id: 7, name: 'v1.2.0', tag_name: 'untagged-4f1cdd3a73e23735f2b7', target_commitish: '1279cdf', draft: true };
+  assert.throws(() => draftRelease([draft], 'camunda/infra-tools'), {
+    message:
+      'draft release v1.2.0 (id 7) has tag name untagged-4f1cdd3a73e23735f2b7, not X.Y.Z: restore it with ' +
+      'gh api -X PATCH repos/camunda/infra-tools/releases/7 -f tag_name=<X.Y.Z> -f target_commitish=1279cdf, then run the workflow',
+  });
 });
 
 test('tools.json lists every tool version of the index per platform with its tag, layer digest and size', () => {

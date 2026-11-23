@@ -5,6 +5,7 @@
   "versioning": "default",
   "include-component-in-tag": false,
   "include-v-in-tag": false,
+  "include-v-in-release-name": false,
   "draft": true,
   "changelog-sections": [
     { "type": "build", "section": "Build System", "hidden": true },

@@ -15,15 +15,23 @@ export function latestReleaseVersion(release) {
   return release.tag_name;
 }
 
-// The releases (X.Y.Z, not tool releases) still to publish, oldest first: the drafts, which their publication publishes last, and
-// those without an uploaded tools.json, such as a draft published by hand; a failed upload can leave it in the starter state.
-// Every draft is one, even when it lost its tag name (an update without it resets it to untagged-<hash>): those come first, so
-// their publication fails before any later release, instead of being skipped. releases: GitHub releases ({ tag_name, draft,
-// assets: [{ name, state }] }).
-export function unpublishedReleases(releases) {
-  const versioned = (r) => RELEASE_VERSION.test(r.tag_name);
-  const unpublished = releases.filter((r) => r.draft || (versioned(r) && !r.assets.some((a) => a.name === 'tools.json' && a.state === 'uploaded')));
-  return [...unpublished.filter((r) => !versioned(r)), ...unpublished.filter(versioned).sort((a, b) => compareVersions(a.tag_name, b.tag_name))];
+// The release to publish (ADR 0013, D64): the one draft release-please created, null when every release is published. Tool
+// releases are never drafts. A second draft, or a draft whose tag name is not X.Y.Z, throws instead of being skipped: GitHub
+// resets the tag name of a draft updated without it to untagged-<hash>, and publishing that draft would create that tag.
+// releases: GitHub releases ({ id, name, tag_name, target_commitish, draft }). repository: owner/name, for the command.
+export function draftRelease(releases, repository) {
+  const drafts = releases.filter((r) => r.draft);
+  if (drafts.length > 1) {
+    throw new Error(`${drafts.length} draft releases, 1 at most (ADR 0013): ${drafts.map((r) => `${r.name} (id ${r.id}, tag name ${r.tag_name})`).join(', ')}`);
+  }
+  const [draft = null] = drafts;
+  if (draft && !RELEASE_VERSION.test(draft.tag_name)) {
+    throw new Error(
+      `draft release ${draft.name} (id ${draft.id}) has tag name ${draft.tag_name}, not X.Y.Z: restore it with ` +
+        `gh api -X PATCH repos/${repository}/releases/${draft.id} -f tag_name=<X.Y.Z> -f target_commitish=${draft.target_commitish}, then run the workflow`,
+    );
+  }
+  return draft;
 }
 
 // The release before `version`: the highest X.Y.Z below it among the index tags (X.Y.Z-tools) of the registry, none before the
@@ -35,7 +43,7 @@ export function previousRelease(tags, version) {
 }
 
 // The releases X.Y.Z of the index tags (X.Y.Z-tools) among the tags of the registry, oldest first.
-export const releaseVersions = (tags) =>
+const releaseVersions = (tags) =>
   tags
     .map((t) => t.match(/^(\d+\.\d+\.\d+)-tools$/)?.[1])
     .filter(Boolean)
