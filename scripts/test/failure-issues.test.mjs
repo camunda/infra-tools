@@ -133,6 +133,18 @@ const pushFailure = {
   errors: { push: 'unexpected status from PUT request: 503 Service Unavailable' },
 };
 
+test('reports of one key, such as the push failures of several build jobs, open one issue with every error', async () => {
+  const github = fakeGithub();
+  const push = (tag) => ({ ...pushFailure, errors: { [tag]: `PUT ${tag}: HTTP 503` } });
+  const alerts = await sync(github, { failures: [push('node-26.1.0-r1'), push('java-21.0.13-5-r1')], runUrl: runUrl(1) });
+  assert.equal(github.issues.length, 1);
+  const [issue] = github.issues;
+  assert.equal(issue.body.match(/The reconciler could not push node 26\.1\.0\./g).length, 1);
+  assert.match(issue.body, /^### node-26\.1\.0-r1$/m);
+  assert.match(issue.body, /^### java-21\.0\.13-5-r1$/m);
+  assert.equal(alerts.length, 1);
+});
+
 test('a run that finds a failure of its scope gone closes its issue with a comment; failures out of its scope stay open', async () => {
   const github = fakeGithub();
   await sync(github, { failures: [javaFailure({ '21.0.13+5 (build)': downloadFailed }), pushFailure], runUrl: runUrl(1) });

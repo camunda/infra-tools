@@ -3,9 +3,11 @@ name: Reconcile
 
 # Reconciler (spec §5.3, ADR 0005): publishes every upstream version within the version lines of the tool definitions. Builds,
 # tests and pushes the missing tool images with the job token, creates their tool releases, and records them in one commit per
-# run, pushed to main by the Infra - Misc App, bypass actor of the main ruleset (D49). A version that fails to build or test is
-# tracked in a fix PR, and every run checks that nothing in range is left unpublished (R17); a failure fails the run, with
-# guidance in its job summaries (no Slack alert yet, D54).
+# run, pushed to main by the Infra - Misc App, bypass actor of the main ruleset (D49). Failures are tracked in failure issues
+# (ADR 0012, D63), which alert #infra-alerts when they open or reopen: a version that fails to build or test is a tool failure,
+# in the issue of its tool and major, and leaves the run green; any other failed step (plan, push, record, the completeness
+# check R17) is a run failure, in the issue of its step, and fails the run, with guidance in its job summaries. Transient
+# registry and GitHub API errors are retried inside the scripts, call by call: a step fails only when its error persists.
 on:
   schedule:
   - cron: '0 */6 * * *' # every 6 hours
@@ -37,7 +39,6 @@ jobs:
     permissions:
       contents: read
       packages: read # read the published tags
-      pull-requests: read # read the fix PRs
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
@@ -66,16 +67,32 @@ jobs:
       if: steps.guard.outputs.superseded == 'false'
       run: npm ci --prefix scripts
 
-    # Fails on an upstream or registry outage, and when a catalog version lost its tag. Versions of open fix PRs are built again.
+    # Fails on an upstream or registry outage, and when a catalog version lost its tag. Versions that failed in earlier runs are
+    # built again. The log is kept for the run failure report.
     - name: Plan the tool versions to publish
       id: plan
       if: steps.guard.outputs.superseded == 'false'
       env:
         GITHUB_TOKEN: ${{ github.token }}
-        REPOSITORY: ${{ github.repository }}
       run: |
-        node scripts/plan.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --out "${OUT}"
+        set -o pipefail
+        mkdir -p "${OUT}"
+        node scripts/plan.mjs --image "${IMAGE}" --out "${OUT}" 2>&1 | tee "${OUT}/plan.log"
         echo "builds=$(jq -c . "${OUT}/builds.json")" >>"${GITHUB_OUTPUT}"
+
+    - name: Report the run failure
+      if: failure() && steps.guard.outputs.superseded == 'false'
+      run: node scripts/run-failure.mjs reconcile plan --log "${OUT}/plan.log" --out "${OUT}/reports/reconcile-plan.json"
+
+    - name: Upload the run failure
+      if: failure() && steps.guard.outputs.superseded == 'false'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: report-plan
+        path: ${{ env.OUT }}/reports/reconcile-plan.json
+        if-no-files-found: error
+        overwrite: true # a manual rerun of the job replaces it
+        retention-days: 7
 
   build:
     name: Publish ${{ matrix.tool }} ${{ matrix.version }}
@@ -97,7 +114,7 @@ jobs:
       with:
         persist-credentials: false
 
-    # Again in each build: main may have moved since the plan, and a rerun of failed jobs skips the plan.
+    # Again in each build: main may have moved since the plan, and a manual rerun of failed jobs skips the plan.
     - name: Check the run is not superseded
       id: guard
       run: scripts/superseded.sh
@@ -122,8 +139,9 @@ jobs:
       if: steps.guard.outputs.superseded == 'false'
       uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
-    # Never over an existing tag: published tool images never change. A failed build or test leaves the job green: its failure
-    # goes to the Fix PRs job, which tracks it in a fix PR, and to the job summary. A failed push fails the job.
+    # Never over an existing tag: published tool images never change. A failed build or test, a tool failure, leaves the job
+    # green: it goes to the Failure issues job, which tracks it in the failure issue of its tool and major, and to the job
+    # summary. A failed push fails the job: a run failure. The log is kept for the run failure report.
     - name: Build, test and push the tool image
       id: build
       if: steps.guard.outputs.superseded == 'false'
@@ -136,8 +154,10 @@ jobs:
         PLATFORMS: ${{ matrix.platforms }}
         REUSE: ${{ matrix.reuse }}
       run: |
+        set -o pipefail
+        mkdir -p "${OUT}"
         node scripts/build.mjs "${TOOL}" "${VERSION}" --revision "${REVISION}" --platforms "${PLATFORMS}" ${REUSE:+--reuse "${REUSE}"} \
-          --push "${IMAGE}" --failure "${OUT}/failures/${TAG}.json"
+          --push "${IMAGE}" --failure "${OUT}/failures/${TAG}.json" 2>&1 | tee "${OUT}/push.log"
         if [[ -f "${OUT}/failures/${TAG}.json" ]]; then echo "failed=true" >>"${GITHUB_OUTPUT}"; fi
 
     - name: Upload the build failure
@@ -147,23 +167,24 @@ jobs:
         name: failure-${{ matrix.tag }}
         path: ${{ env.OUT }}/failures/${{ matrix.tag }}.json
         if-no-files-found: error
-        overwrite: true # a rerun attempt of the job replaces it
+        overwrite: true # a manual rerun of the job replaces it
         retention-days: 7
 
-    - name: Report failure
-      if: failure()
+    - name: Report the run failure
+      if: failure() && steps.guard.outputs.superseded == 'false'
       env:
-        TOOL: ${{ matrix.tool }}
-        VERSION: ${{ matrix.version }}
-      run: |
-        {
-          echo "## ${TOOL} ${VERSION}: failed"
-          echo
-          echo "A failed build or test is tracked in a fix PR and leaves this job green: this failure is another one, such as a push to ghcr.io."
-          echo "Inspect the failed step in the job logs."
-          echo "A registry error is usually transient: a scheduled or push run reruns its failed jobs up to attempt 3."
-          echo "The next run plans the version again."
-        } >>"${GITHUB_STEP_SUMMARY}"
+        TAG: ${{ matrix.tag }}
+      run: node scripts/run-failure.mjs reconcile push --subject "${TAG}" --log "${OUT}/push.log" --out "${OUT}/reports/reconcile-push-${TAG}.json"
+
+    - name: Upload the run failure
+      if: failure() && steps.guard.outputs.superseded == 'false'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: report-push-${{ matrix.tag }}
+        path: ${{ env.OUT }}/reports/reconcile-push-${{ matrix.tag }}.json
+        if-no-files-found: error
+        overwrite: true # a manual rerun of the job replaces it
+        retention-days: 7
 
   record:
     name: Record
@@ -219,11 +240,15 @@ jobs:
       if: steps.guard.outputs.superseded == 'false'
       run: npm ci --prefix scripts
 
+    # Each step appends its log to the one the run failure report reads.
     - name: Record the published tool versions
       if: steps.guard.outputs.superseded == 'false'
       env:
         GITHUB_TOKEN: ${{ github.token }}
-      run: node scripts/record.mjs --image "${IMAGE}" --out "${OUT}"
+      run: |
+        set -o pipefail
+        mkdir -p "${OUT}"
+        node scripts/record.mjs --image "${IMAGE}" --out "${OUT}" 2>&1 | tee -a "${OUT}/record.log"
 
     # Before the record commit: a run that fails here records the same versions next time.
     - name: Create the tool releases
@@ -232,7 +257,9 @@ jobs:
         GITHUB_TOKEN: ${{ github.token }}
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
         REPOSITORY: ${{ github.repository }}
-      run: node scripts/publish.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --out "${OUT}"
+      run: |
+        set -o pipefail
+        node scripts/publish.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --out "${OUT}" 2>&1 | tee -a "${OUT}/record.log"
 
     - name: Push the record commit to main
       if: steps.guard.outputs.superseded == 'false'
@@ -240,28 +267,56 @@ jobs:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
         APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
       run: |
-        if [[ ! -s "${OUT}/commit.txt" ]]; then
-          echo "Nothing to record."
-          exit 0
-        fi
-        user_id="$(gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)"
-        git config user.name "${APP_SLUG}[bot]"
-        git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
-        git add published
-        git commit --file "${OUT}/commit.txt"
-        git push origin HEAD:main
+        set -o pipefail
+        {
+          if [[ ! -s "${OUT}/commit.txt" ]]; then
+            echo "Nothing to record."
+            exit 0
+          fi
+          # Transient GitHub errors are retried, 2, 4 then 8 s apart (ADR 0012).
+          retry() {
+            local delay
+            for delay in 2 4 8; do
+              "$@" && return
+              echo "Failed, retried in ${delay} s: $*" >&2
+              sleep "${delay}"
+            done
+            "$@"
+          }
+          user_id="$(retry gh api "users/${APP_SLUG}%5Bbot%5D" --jq .id)"
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${user_id}+${APP_SLUG}[bot]@users.noreply.github.com"
+          git add published
+          git commit --file "${OUT}/commit.txt"
+          retry git push origin HEAD:main
+        } 2>&1 | tee -a "${OUT}/record.log"
 
-  fix-prs:
-    name: Fix PRs
+    - name: Report the run failure
+      if: failure() && steps.guard.outputs.superseded == 'false'
+      run: node scripts/run-failure.mjs reconcile record --log "${OUT}/record.log" --out "${OUT}/reports/reconcile-record.json"
+
+    - name: Upload the run failure
+      if: failure() && steps.guard.outputs.superseded == 'false'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: report-record
+        path: ${{ env.OUT }}/reports/reconcile-record.json
+        if-no-files-found: error
+        overwrite: true # a manual rerun of the job replaces it
+        retention-days: 7
+
+  failure-issues:
+    name: Failure issues
     needs:
     - plan
     - build
     - record
-    # Also after failed builds or a failed record: failures are tracked and completeness is checked against the published tags.
-    if: always() && needs.plan.result == 'success'
+    # Also after failed jobs, whose run failures it tracks; never on a cancelled run, nor on another branch, which plans nothing.
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' }}
     permissions:
       contents: read
       packages: read # read the published tags
+      issues: write # open, update and close the failure issues
       id-token: write # Vault OIDC/JWT auth
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -271,26 +326,10 @@ jobs:
       with:
         persist-credentials: false
 
-    # A superseded run's failures were built with tool definitions main no longer has: the run on the tip tracks its own.
+    # A superseded run's failures were met with tool definitions main no longer has: the run on the tip tracks its own.
     - name: Check the run is not superseded
       id: guard
       run: scripts/superseded.sh
-
-    # Fix PRs opened by the Infra - Misc App start their checks; ones opened with the job token would not.
-    - name: Generate a GitHub token
-      id: app-token
-      if: steps.guard.outputs.superseded == 'false'
-      uses: camunda/infra-global-github-actions/generate-github-app-token-from-vault-secrets@main
-      with:
-        github-app-id-vault-key: GITHUB_APP_ID
-        github-app-id-vault-path: secret/data/products/infra/ci/team-infrastructure
-        github-app-private-key-vault-key: GITHUB_APP_PRIVATE_KEY
-        github-app-private-key-vault-path: secret/data/products/infra/ci/team-infrastructure
-        vault-auth-method: jwt
-        vault-auth-jwt-role: ${{ secrets.VAULT_JWT_ROLE }}
-        vault-auth-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
-        vault-auth-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
-        vault-url: ${{ secrets.VAULT_ADDR }}
 
     - name: Set up Node.js
       if: steps.guard.outputs.superseded == 'false'
@@ -305,7 +344,7 @@ jobs:
       run: npm ci --prefix scripts
 
     # None when every build passed.
-    - name: Download the build failures
+    - name: Download the tool failures
       if: steps.guard.outputs.superseded == 'false'
       uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
       with:
@@ -313,61 +352,78 @@ jobs:
         merge-multiple: true
         path: ${{ env.OUT }}/failures
 
-    - name: Open, update and close the fix PRs
+    # None when no step failed.
+    - name: Download the run failures
       if: steps.guard.outputs.superseded == 'false'
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: report-*
+        merge-multiple: true
+        path: ${{ env.OUT }}/reports
+
+    # Once the run's builds are recorded, against the run's plan: writes the tool failure reports, a push report for each build
+    # job that failed without one (a timeout), and the failure issue keys it checked, then fails when a version the run built is
+    # neither published nor failed.
+    - name: Check that every version built is published or failed (R17)
+      id: check
+      if: steps.guard.outputs.superseded == 'false' && needs.plan.result == 'success'
       env:
         GITHUB_TOKEN: ${{ github.token }}
-        GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        BUILDS: ${{ needs.plan.outputs.builds }}
+      run: |
+        set -o pipefail
+        mkdir -p "${OUT}"
+        jq . <<<"${BUILDS}" >"${OUT}/builds.json"
+        node scripts/plan.mjs --image "${IMAGE}" --check --failures "${OUT}/failures" --out "${OUT}" 2>&1 | tee "${OUT}/completeness.log"
+
+    - name: Report the completeness failure
+      if: failure() && steps.check.outcome == 'failure'
+      run: node scripts/run-failure.mjs reconcile completeness --log "${OUT}/completeness.log" --out "${OUT}/reports/reconcile-completeness.json"
+
+    - name: Import Secrets
+      id: secrets
+      if: ${{ !cancelled() && steps.guard.outputs.superseded == 'false' }}
+      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+      with:
+        url: ${{ secrets.VAULT_ADDR }}
+        method: jwt
+        role: ${{ secrets.VAULT_JWT_ROLE }}
+        path: ${{ secrets.VAULT_JWT_PATH }}
+        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        exportEnv: false # we rely on step outputs, no need for environment variables
+        secrets: |
+          secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
+
+    # A failed or cancelled (timed out) plan or record job without its report gets one without a log; build jobs get theirs from
+    # the check. The open failure issue of a step that ran and passed closes, its report from an earlier attempt of the run, left
+    # before a manual rerun of the job passed, dropped; so do those of the tool failure keys the check found resolved.
+    - name: Open, update and close the failure issues
+      if: ${{ !cancelled() && steps.guard.outputs.superseded == 'false' }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SLACK_WEBHOOK_INFRA_ALERTS: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
         REPOSITORY: ${{ github.repository }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-      run: node scripts/fix-pr.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --failures "${OUT}/failures" --run-url "${RUN_URL}"
-
-    # After the fix PRs: a version this run failed to build is tracked by now.
-    - name: Check that every version in range is published or tracked (R17)
-      if: steps.guard.outputs.superseded == 'false'
-      env:
-        GITHUB_TOKEN: ${{ github.token }}
-        GH_TOKEN: ${{ steps.app-token.outputs.token }}
-        REPOSITORY: ${{ github.repository }}
-      run: node scripts/plan.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --check
-
-    - name: Report failure
-      if: failure()
+        PLAN: ${{ needs.plan.result }}
+        PUSH: ${{ needs.build.result }}
+        RECORD: ${{ needs.record.result }}
+        COMPLETENESS: ${{ steps.check.outcome }}
       run: |
-        {
-          echo "## Fix PRs or completeness check failed"
-          echo
-          echo "Inspect the failed step in the job logs."
-          echo "- **Open, update and close the fix PRs**: a GitHub API error is usually transient; the failures of the next run open the fix PRs again."
-          echo "- **Check that every version in range is published or tracked**: the versions it lists are neither published nor in a fix PR."
-          echo "  Their build job usually failed or was cancelled before handing its failure over (see the build jobs of this run)."
-          echo "  The next run plans them again."
-        } >>"${GITHUB_STEP_SUMMARY}"
-
-  # Retry transient failures (e.g. registry or GitHub API errors) of unattended runs; the run fails after the last attempt.
-  rerun-failed-jobs:
-    name: Rerun failed jobs
-    needs:
-    - plan
-    - build
-    - record
-    - fix-prs
-    if: failure() && github.event_name != 'workflow_dispatch' && fromJSON(github.run_attempt) < 3
-    permissions:
-      id-token: write # Vault OIDC/JWT auth
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-    - name: Retrigger failed jobs
-      uses: camunda/infra-global-github-actions/rerun-failed-run@main
-      with:
-        run-id: ${{ github.run_id }}
-        repository: ${{ github.repository }}
-        vault-addr: ${{ secrets.VAULT_ADDR }}
-        vault-auth-method: jwt
-        vault-jwt-role: ${{ secrets.VAULT_JWT_ROLE }}
-        vault-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
-        vault-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        resolve=()
+        for step in plan push record completeness; do
+          var="${step^^}"
+          result="${!var}"
+          if [[ "${result}" == success || ( "${step}" == push && "${result}" == skipped && "${PLAN}" == success ) ]]; then
+            resolve+=(--resolve "reconcile/${step}")
+            rm -f "${OUT}/reports/reconcile-${step}".json "${OUT}/reports/reconcile-${step}"-*.json
+          elif [[ "${step}" =~ ^(plan|record)$ && "${result}" =~ ^(failure|cancelled)$ && ! -f "${OUT}/reports/reconcile-${step}.json" ]]; then
+            node scripts/run-failure.mjs reconcile "${step}" --out "${OUT}/reports/reconcile-${step}.json"
+          fi
+        done
+        if [[ -f "${OUT}/resolve.txt" ]]; then
+          while read -r scope; do resolve+=(--resolve "${scope}"); done <"${OUT}/resolve.txt"
+        fi
+        node scripts/failure-issues.mjs --repository "${REPOSITORY}" --run-url "${RUN_URL}" --failures "${OUT}/reports" "${resolve[@]}"
 
   check:
     name: Check Reconcile
@@ -377,8 +433,7 @@ jobs:
     - plan
     - build
     - record
-    - fix-prs
-    - rerun-failed-jobs
+    - failure-issues
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -391,7 +446,7 @@ jobs:
           }}
       run: |
         if [ "$ERROR" == "true" ]; then
-          echo "Some reconciler jobs have failed or been cancelled."
+          echo "Some reconciler jobs have failed or been cancelled: their run failures are in failure issues (run-failure label)."
           exit 1
         fi
         echo "All reconciler jobs passed or were skipped."

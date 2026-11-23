@@ -7,18 +7,17 @@
 // - comment.md: the PR comment, with the revision errors and warnings and the release notes preview; not written when no tool
 //   changed.
 // Prints each error and warning as a workflow annotation, and fails once the comment is posted when there is an error. With --comment, also brings the release notes preview comment of that
-// PR up to date (lib/pull-request.mjs previewCommentUpdate). Plans with the fix PRs of --repository, as the reconciler does.
+// PR up to date (lib/pull-request.mjs previewCommentUpdate). Plans as the reconciler does, reading no pull request or issue.
 // Uses gh and its token (GH_TOKEN or GITHUB_TOKEN).
 import { execFileSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { FIX_PR_LABEL, trackedVersions } from './lib/fix-pr.mjs';
 import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
 import { Registry } from './lib/registry.mjs';
 import { latestReleaseVersion } from './lib/release.mjs';
-import { ghApi, ghJson, readCatalog, readPullRequests, readToolDefinition, readToolNames, ROOT } from './lib/repository.mjs';
+import { ghApi, ghJson, readCatalog, readToolDefinition, readToolNames, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const { values } = parseArgs({
@@ -69,7 +68,6 @@ const { builds, errors, warnings, notes } = await checkPullRequest({
   previousRelease: { index: await readIndex(registry, `${previousVersion}-tools`), version: previousVersion },
   toolImageLayers: (tag) => registry.toolImageLayers(tag),
   repository: values.repository,
-  fixPrs: trackedVersions(readPullRequests(values.repository, FIX_PR_LABEL)),
 });
 
 await mkdir(values.out, { recursive: true });

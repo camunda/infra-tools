@@ -46,7 +46,8 @@ beforeEach(async () => {
   fakes = [ghcr, gar];
   await Promise.all(fakes.map((f) => f.start()));
   source = { fake: ghcr, registry: new Registry(ghcr.repository, { token: TOKEN, scheme: 'http' }) };
-  mirror = { fake: gar, registry: new Registry(gar.repository, { token: TOKEN, user: 'oauth2accesstoken', scheme: 'http' }) };
+  // No wait between retries: a rejected push answers 500 every time.
+  mirror = { fake: gar, registry: new Registry(gar.repository, { token: TOKEN, user: 'oauth2accesstoken', scheme: 'http', retryDelays: [0, 0] }) };
 });
 after(() => Promise.all(fakes.map((f) => f.stop())));
 

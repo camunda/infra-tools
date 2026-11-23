@@ -5,11 +5,11 @@
 // docs/runbooks/; the open failure issue of a key within a --resolve scope (tool, reconcile/push, release/index/1.2.0, ...)
 // that no report has is closed. An issue opened or reopened posts one line to #infra-alerts through the Slack webhook in
 // SLACK_WEBHOOK_INFRA_ALERTS. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN): the job's GITHUB_TOKEN, with issues: write.
-import { readdir, readFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { syncFailureIssues } from './lib/failure-issues.mjs';
-import { ghApi, ghJson, ROOT } from './lib/repository.mjs';
+import { ghApi, ghJson, readJsonFiles, ROOT } from './lib/repository.mjs';
 
 const { values } = parseArgs({
   options: { repository: { type: 'string' }, 'run-url': { type: 'string' }, failures: { type: 'string' }, resolve: { type: 'string', multiple: true, default: [] } },
@@ -18,19 +18,6 @@ if (!values.repository || !values['run-url']) {
   throw new Error('usage: node failure-issues.mjs --repository <owner>/<name> --run-url <url> [--failures <dir>] [--resolve <scope>]...');
 }
 const repo = `repos/${values.repository}`;
-
-// The failure reports of this run; the folder is missing when nothing failed.
-async function readFailures(dir) {
-  if (!dir) return [];
-  let files;
-  try {
-    files = (await readdir(dir)).filter((f) => f.endsWith('.json')).sort();
-  } catch (err) {
-    if (err.code === 'ENOENT') return [];
-    throw err;
-  }
-  return Promise.all(files.map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf8'))));
-}
 
 // Creates a label the repository lacks, once per run: issues are found by their label, which creating an issue with a missing
 // label does not reliably add.
@@ -91,7 +78,7 @@ await syncFailureIssues({
   github,
   alert: async (text) => alerts.push(text),
   readRunbook: (path) => readFile(join(ROOT, 'docs', 'runbooks', path), 'utf8'),
-  failures: await readFailures(values.failures),
+  failures: await readJsonFiles(values.failures),
   resolve: values.resolve,
   runUrl: values['run-url'],
 });

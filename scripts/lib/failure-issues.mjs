@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 
 // Label of the failure issues of tool failures (one per tool and major) and of run failures (one per flow and step, and release).
-const TOOL_FAILURE_LABEL = 'tool-failure';
+export const TOOL_FAILURE_LABEL = 'tool-failure';
 const RUN_FAILURE_LABEL = 'run-failure';
 
 // Holds the failure issue's key and the signature of each of its errors, as JSON.
@@ -27,7 +27,7 @@ function kindOf(key) {
 const keyId = (key) => kindOf(key).id;
 
 // A Markdown text code block of a log excerpt, its fence longer than any backtick run of the excerpt.
-function codeBlock(excerpt) {
+export function codeBlock(excerpt) {
   const fence = '`'.repeat(Math.max(3, ...[...excerpt.matchAll(/`+/g)].map((m) => m[0].length + 1)));
   return `${fence}text\n${excerpt}\n${fence}`;
 }
@@ -100,6 +100,17 @@ function issueOf(issues, key) {
   return latest(ofKey.filter((issue) => issue.state === 'open')) ?? latest(ofKey);
 }
 
+// Failures of one key are one: their errors together, and each context and state once, paragraphs apart.
+function mergeByKey(failures) {
+  const once = (text, more) => (text.split('\n\n').includes(more) ? text : `${text}\n\n${more}`);
+  const byId = new Map();
+  for (const f of failures) {
+    const merged = byId.get(keyId(f.key));
+    byId.set(keyId(f.key), merged ? { ...merged, context: once(merged.context, f.context), state: once(merged.state, f.state), errors: { ...merged.errors, ...f.errors } } : f);
+  }
+  return [...byId.values()];
+}
+
 // Slack mrkdwn link, its text escaped.
 const slackLink = (url, text) => `<${url}|${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}>`;
 
@@ -112,11 +123,13 @@ const slackLink = (url, text) => `<${url}|${text.replace(/&/g, '&amp;').replace(
 // alert(text): posts one Slack line to #infra-alerts. readRunbook(path): a runbook of docs/runbooks/, by relative path.
 // failures: this run's failures ({ key, context, state, errors }): key is { tool, major } for a tool failure, { flow, step,
 // release } for a run failure (release only for a release's own step); context two or three sentences of Markdown, state the
-// observed state, errors the log excerpt of each failing subject (a tool version, a step), by subject.
+// observed state, errors the log excerpt of each failing subject (a tool version, a step), by subject. Failures of one key,
+// such as the push failures of several build jobs, are merged into one.
 // resolve: the keys this run checked, as key ids or their leading segments (tool, tool/java, reconcile, reconcile/push,
 // release/index/1.2.0, ...): the open failure issue of such a key none of failures has is closed, its failure gone.
 // runUrl: this run.
-export async function syncFailureIssues({ github, alert, readRunbook, failures, resolve = [], runUrl }) {
+export async function syncFailureIssues({ github, alert, readRunbook, failures: reports, resolve = [], runUrl }) {
+  const failures = mergeByKey(reports);
   // An issue with both labels is listed once.
   const listed = (await Promise.all([TOOL_FAILURE_LABEL, RUN_FAILURE_LABEL].map((label) => github.listIssues(label)))).flat();
   const issues = [...new Map(listed.map((issue) => [issue.number, issue])).values()].flatMap((issue) => {

@@ -22,6 +22,13 @@ for (const recorded of unreleased) {
     continue;
   }
   const release = await imageToolRelease({ tool: await readToolDefinition(recorded.tool), recorded, registry, repository: values.repository });
-  const created = ghJson(`repos/${values.repository}/releases`, { method: 'POST', body: release });
+  let created;
+  try {
+    created = ghJson(`repos/${values.repository}/releases`, { method: 'POST', body: release });
+  } catch (err) {
+    // A retried create GitHub had applied (a 502 after creating it) answers already_exists: the tool release exists.
+    created = /already_exists/.test(err.stderr ?? '') && ghJson(`repos/${values.repository}/releases/tags/${encodeURIComponent(recorded.tag)}`);
+    if (!created) throw err;
+  }
   console.log(`${recorded.tag}: tool release created, ${created.html_url}`);
 }

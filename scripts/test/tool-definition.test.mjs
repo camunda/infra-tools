@@ -81,7 +81,8 @@ test('version lines are validated (D41)', () => {
   bad({ 21: { from: '21.0.12', start: '21.0.1' } }, 'publish.lines.21: unknown option start');
   bad({ 21: { from: '22.0.0' } }, 'publish.lines.21: from 22.0.0 is not in line 21');
   bad({ 21: { versions: ['22.0.1'] } }, 'publish.lines.21: versions 22.0.1 is not in line 21');
-  bad({ 21: { from: '21.0.12', ignoredVersions: ['210.0.1'] } }, 'publish.lines.21: ignoredVersions 210.0.1 is not in line 21');
+  bad({ 21: { from: '21.0.12', ignoredVersions: ['210.0.1'], reason: 'fails' } }, 'publish.lines.21: ignoredVersions 210.0.1 is not in line 21');
+  bad({ 21: { from: '21.0.12', ignoredVersions: ['21.0.13+5'] } }, 'publish.lines.21: ignoredVersions needs the reason of the line, why they are never published (ADR 0012)');
   bad({ 21: { revisions: { '25.0.1': 2 } } }, 'publish.lines.21: revisions 25.0.1 is not in line 21');
   bad({ 21: { retired: ['17.0.1'] } }, 'publish.lines.21: retired 17.0.1 is not in line 21');
   bad({ 21: { from: '21.0.12', versions: ['21.0.12+8'] } }, 'publish.lines.21: versions 21.0.12+8 is at or above from 21.0.12; from already publishes it');
@@ -103,9 +104,9 @@ test('version lines are validated (D41)', () => {
 
   const ok = java({
     17: { retired: 'all', reason: 'end of life' },
-    21: { from: '21.0.12', versions: ['21.0.11+9'], ignoredVersions: ['21.0.12+8.0.LTS'], revisions: { '21.0.12+101.0.LTS': 2 }, minAge: '6 hours' },
+    21: { from: '21.0.12', versions: ['21.0.11+9'], ignoredVersions: ['21.0.12+8.0.LTS'], revisions: { '21.0.12+101.0.LTS': 2 }, minAge: '6 hours', reason: '21.0.12+8.0.LTS: no arm64 build' },
     25: { reason: 'stopped', retired: ['25.0.1+8'] },
-    '*': { from: '27.0.0', ignoredVersions: ['27.0.1+3'] },
+    '*': { from: '27.0.0', ignoredVersions: ['27.0.1+3'], reason: '27.0.1+3: withdrawn upstream' },
   });
   assert.equal(ok.publish.lines['17'].reason, 'end of life');
 });
