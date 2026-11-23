@@ -95,6 +95,7 @@ jobs:
         app-id: ${{ steps.vault-secrets.outputs.RELEASES_APP_ID }}
         private-key: ${{ steps.vault-secrets.outputs.RELEASES_APP_KEY }}
         permission-contents: write # read the draft releases, add the tool tables to their notes, attach tools.json and publish them
+        permission-workflows: write # update and publish a draft whose target commit changes a workflow file and is no longer a branch head
 
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
