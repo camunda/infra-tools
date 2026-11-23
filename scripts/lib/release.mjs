@@ -25,13 +25,18 @@ export function latestIndexTag(manifest, tags) {
   return version ? `${version}-tools` : 'tracer-tools';
 }
 
+// The tag name of a release X.Y.Z (tool releases are named after their tool image).
+export const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
+
 // The releases (X.Y.Z, not tool releases) still to publish, oldest first: the drafts, which their publication publishes last, and
 // those without an uploaded tools.json, such as a draft published by hand; a failed upload can leave it in the starter state.
-// releases: GitHub releases ({ tag_name, draft, assets: [{ name, state }] }).
+// Every draft is one, even when it lost its tag name (an update without it resets it to untagged-<hash>): those come first, so
+// their publication fails before any later release, instead of being skipped. releases: GitHub releases ({ tag_name, draft,
+// assets: [{ name, state }] }).
 export function unpublishedReleases(releases) {
-  return releases
-    .filter((r) => /^\d+\.\d+\.\d+$/.test(r.tag_name) && (r.draft || !r.assets.some((a) => a.name === 'tools.json' && a.state === 'uploaded')))
-    .sort((a, b) => compareVersions(a.tag_name, b.tag_name));
+  const versioned = (r) => RELEASE_VERSION.test(r.tag_name);
+  const unpublished = releases.filter((r) => r.draft || (versioned(r) && !r.assets.some((a) => a.name === 'tools.json' && a.state === 'uploaded')));
+  return [...unpublished.filter((r) => !versioned(r)), ...unpublished.filter(versioned).sort((a, b) => compareVersions(a.tag_name, b.tag_name))];
 }
 
 // The release before `version`: the highest X.Y.Z below it among the index tags (X.Y.Z-tools) of the registry, none before the
