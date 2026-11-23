@@ -50,9 +50,15 @@ for (const name of names) {
   baseTools[name] = parseToolDefinition(name, JSON.parse(json));
 }
 
+// The latest published release (ADR 0013). A rerun of an older run keeps its base, which can predate it: its catalog can then
+// hold a lower revision than the release's index, so the checks run again on the current base instead.
+const previousVersion = latestReleaseVersion(ghJson(`repos/${values.repository}/releases/latest`));
+const base = git('rev-parse', values.base).trim();
+const { status } = ghJson(`repos/${values.repository}/compare/${previousVersion}...${base}?per_page=1`);
+if (!['ahead', 'identical'].includes(status)) throw new Error(`release ${previousVersion} is newer than the base ${base}: push again or update the branch to check the PR on the current base`);
+
 const registry = new Registry(values.image);
 const tags = await registry.tags();
-const previousVersion = latestReleaseVersion(ghJson(`repos/${values.repository}/releases/latest`));
 
 const { builds, errors, warnings, notes } = await checkPullRequest({
   tools,
