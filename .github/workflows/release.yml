@@ -1,16 +1,20 @@
 ---
 name: Release
 
-# Releases (spec §5.5, D25): release-please keeps a release PR up to date with the record commits and the action changes since
-# the latest release (config in .github/config/), and creates release X.Y.Z as a draft, without its tag, once GitHub
-# auto-merged it (release-merge.yml). The release is then published: its X.Y.Z-tools index pushed to ghcr.io, the Added /
-# Replaced / Retired tables added to its notes, tools.json attached and the draft published, which creates its tag (D60): the
-# action cannot be pinned to a release whose index is missing. Every draft release is published, oldest first: a release
-# whose publication failed stays a draft and is completed by the next run, before any later release.
+# Releases (spec §5.5, D25, ADR 0013, D64), in one job whose steps each check their own end state and do nothing once it is
+# reached, so a run repeated after any failure completes the release: release-please creates release X.Y.Z as a draft, without
+# its tag, once GitHub auto-merged its release PR (release-merge.yml; config in .github/config/); release.mjs then pushes its
+# X.Y.Z-tools index to ghcr.io, copies it to every mirror (D65), adds the Added / Replaced / Retired tables to its notes,
+# attaches tools.json and publishes the draft last, which creates its tag; and release-please opens or updates the next release
+# PR only once every step passed, so there is at most one draft and the PR's changelog starts at an existing tag. A failed step
+# is a run failure tracked in its failure issue (ADR 0012, D63), which alerts #infra-alerts when it opens or reopens. Transient
+# registry and GitHub API errors are retried inside the scripts, call by call. A manual run follows a fix that needs no push
+# (a retargeted draft, a deleted mirror tag).
 on:
   push:
     branches:
     - main
+  workflow_dispatch:
 
 permissions: {}
 
@@ -21,57 +25,20 @@ concurrency:
 
 env:
   IMAGE: ghcr.io/camunda/infra-tools
+  OUT: build/out/release
 
 jobs:
-  # release-type node with a package-name, so release-please needs no package.json at the root.
-  release-please:
-    name: Release Please
+  release:
+    name: Release
+    # Only main releases: a manual run on another branch would publish with its unreviewed scripts.
+    if: github.ref == 'refs/heads/main'
     permissions:
       contents: read
-      id-token: write # Vault OIDC/JWT auth
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-    - name: Import Secrets
-      id: vault-secrets
-      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
-      with:
-        url: ${{ secrets.VAULT_ADDR }}
-        method: jwt
-        role: ${{ secrets.VAULT_JWT_ROLE }}
-        path: ${{ secrets.VAULT_JWT_PATH }}
-        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
-        exportEnv: false # we rely on step outputs, no need for environment variables
-        secrets: |
-          secret/data/products/infra/ci/infra-releases RELEASES_APP_ID;
-          secret/data/products/infra/ci/infra-releases RELEASES_APP_KEY;
-
-    # The infra-releases App (D56): its release PRs and releases start the workflows a job token's would not.
-    - name: Generate a GitHub token
-      id: app-token
-      uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
-      with:
-        app-id: ${{ steps.vault-secrets.outputs.RELEASES_APP_ID }}
-        private-key: ${{ steps.vault-secrets.outputs.RELEASES_APP_KEY }}
-        permission-contents: write # release commits on the release PR branch, tags and releases
-        permission-issues: write # release PR labels
-        permission-pull-requests: write # the release PR
-
-    - name: Handle Release Creation
-      uses: camunda/infra-global-github-actions/teams/infra/pull-request/release@main
-      with:
-        github-token: ${{ steps.app-token.outputs.token }}
-
-  # Every draft release, oldest first: nothing to do on most runs.
-  publish:
-    name: Publish the release
-    needs: release-please
-    permissions:
-      contents: read
-      id-token: write # Vault OIDC/JWT auth
+      id-token: write # Vault OIDC/JWT auth, and the OIDC login to the mirrors' clouds
+      issues: write # open, update and close the failure issues
       packages: write # push the index to ghcr.io
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 45
     steps:
     - name: Import Secrets
       id: vault-secrets
@@ -86,88 +53,50 @@ jobs:
         secrets: |
           secret/data/products/infra/ci/infra-releases RELEASES_APP_ID;
           secret/data/products/infra/ci/infra-releases RELEASES_APP_KEY;
+          secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
 
-    # The infra-releases App (D56): the tag that publishing a draft creates starts the workflows a job token's would not.
+    # The infra-releases App (D56): its release PRs, and the tag that publishing a draft creates, start the workflows a job
+    # token's would not.
     - name: Generate a GitHub token
       id: app-token
       uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3.4.0
       with:
         app-id: ${{ steps.vault-secrets.outputs.RELEASES_APP_ID }}
         private-key: ${{ steps.vault-secrets.outputs.RELEASES_APP_KEY }}
-        permission-contents: write # read the draft releases, add the tool tables to their notes, attach tools.json and publish them
+        permission-contents: write # release commits on the release PR branch, the draft release, its notes and tools.json, its publication
+        permission-issues: write # release PR labels
+        permission-pull-requests: write # the release PR
         permission-workflows: write # update and publish a draft whose target commit changes a workflow file and is no longer a branch head
 
+    # Called directly, not through the shared release action, which exposes neither skip input (ADR 0013).
+    - name: Create the draft release
+      uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      with:
+        token: ${{ steps.app-token.outputs.token }}
+        config-file: .github/config/release-please-config.json
+        manifest-file: .github/config/.release-please-manifest.json
+        skip-github-pull-request: true
+
     - name: Checkout
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
 
+    # No dependency cache in a job that publishes: a poisoned cache would reach the release (zizmor cache-poisoning).
     - name: Set up Node.js
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version-file: .tool-versions
-        cache: npm
-        cache-dependency-path: scripts/package-lock.json
+        package-manager-cache: false
 
     - name: Install dependencies
       run: npm ci --prefix scripts
 
-    # Fails when a catalog version lost its tag, or on a registry or GitHub API outage.
-    - name: Publish the release
-      env:
-        GH_TOKEN: ${{ steps.app-token.outputs.token }} # gh, for the releases
-        GITHUB_TOKEN: ${{ github.token }} # the registry
-        REPOSITORY: ${{ github.repository }}
-      run: node scripts/index.mjs release --image "${IMAGE}" --repository "${REPOSITORY}"
-
-    - name: Report failure
-      if: failure()
-      run: |
-        {
-          echo "## Release publication failed"
-          echo
-          echo "Inspect the failed step in the job logs. A failed run reruns its failed jobs up to attempt 3."
-          echo "The release stays a draft, without its tag, until a run succeeds: the next push to main, or a rerun of this one, completes it before any later release."
-          echo "A catalog version whose tag is missing needs its tool image published again (revision bump) or its version retired."
-        } >>"${GITHUB_STEP_SUMMARY}"
-
-  # One matrix entry per mirror filled by copy, with its login step (ADR 0007, D61).
-  mirror:
-    name: Copy the releases to ${{ matrix.name }}
-    needs: publish
-    permissions:
-      contents: read
-      packages: read # read the release indexes on ghcr.io
-      id-token: write # OIDC login to the mirror's cloud
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - name: gar
-          repository: europe-west1-docker.pkg.dev/ci-30-162810/infra-tools/camunda/infra-tools
-          user: oauth2accesstoken
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
-    - name: Set up Node.js
-      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-      with:
-        node-version-file: .tool-versions
-        cache: npm
-        cache-dependency-path: scripts/package-lock.json
-
-    - name: Install dependencies
-      run: npm ci --prefix scripts
-
-    # infra-tools-mirror-sa can only write the GKE mirror (camunda/infra-core).
+    # One login step per mirror. infra-tools-mirror-sa can only write the GKE mirror (camunda/infra-core). A failed login fails
+    # only that mirror's step of the release, which tracks it in its failure issue.
     - name: Authenticate to Google Cloud
       id: gar
-      if: matrix.name == 'gar'
+      continue-on-error: true
       uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
       with:
         workload_identity_provider: projects/502682377344/locations/global/workloadIdentityPools/ci-gha-workload-pool/providers/gha-provider
@@ -175,69 +104,50 @@ jobs:
         token_format: access_token
         create_credentials_file: false # only the access token is used
 
-    - name: Copy the missing release indexes
+    # Does nothing without a draft. Writes the failure report of each failed step, and the failure issue scopes of those that
+    # passed, for the failure issues step; a step cut by the timeout leaves its report.
+    - name: Publish the release
+      id: release
+      timeout-minutes: 30
       env:
-        GITHUB_TOKEN: ${{ github.token }}
-        MIRROR_TOKEN: ${{ steps.gar.outputs.access_token }}
-        MIRROR: ${{ matrix.repository }}
-        MIRROR_USER: ${{ matrix.user }}
-      run: node scripts/index.mjs mirror --image "${IMAGE}" --mirror "${MIRROR}" --user "${MIRROR_USER}"
+        GH_TOKEN: ${{ steps.app-token.outputs.token }} # gh, for the releases
+        GITHUB_TOKEN: ${{ github.token }} # ghcr.io
+        MIRROR_TOKEN_GAR: ${{ steps.gar.outputs.access_token }}
+        REPOSITORY: ${{ github.repository }}
+      run: |
+        node scripts/release.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --out "${OUT}" \
+          --mirror gar=oauth2accesstoken@europe-west1-docker.pkg.dev/ci-30-162810/infra-tools/camunda/infra-tools
+
+    # Only once every step passed: no draft is left, so the changelog starts at the latest release's tag.
+    - name: Open or update the release PR
+      uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+      with:
+        token: ${{ steps.app-token.outputs.token }}
+        config-file: .github/config/release-please-config.json
+        manifest-file: .github/config/.release-please-manifest.json
+        skip-github-release: true
+
+    # Also after a failed step, whose failures it tracks; the release step writes nothing when it did not run.
+    - name: Open, update and close the failure issues
+      if: ${{ !cancelled() }}
+      env:
+        GH_TOKEN: ${{ github.token }}
+        SLACK_WEBHOOK_INFRA_ALERTS: ${{ steps.vault-secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
+        REPOSITORY: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        resolve=()
+        if [[ -f "${OUT}/resolve.txt" ]]; then
+          while read -r scope; do resolve+=(--resolve "${scope}"); done <"${OUT}/resolve.txt"
+        fi
+        node scripts/failure-issues.mjs --repository "${REPOSITORY}" --run-url "${RUN_URL}" --failures "${OUT}/reports" "${resolve[@]}"
 
     - name: Report failure
-      if: failure()
-      env:
-        MIRROR: ${{ matrix.repository }}
+      if: failure() && steps.release.outcome != 'failure'
       run: |
         {
-          echo "## Copy to ${MIRROR} failed"
+          echo "## Release failed"
           echo
-          echo "Inspect the failed step in the job logs. The releases are published on ghcr.io: runners using this mirror fall back to it."
-          echo "The next run copies them: the next push to main, or a rerun of this one."
+          echo "A step outside the release steps failed (secrets, token, release-please, setup or failure issues): it has no failure issue."
+          echo "Inspect the failed step in the job log, then run the workflow again: \`gh workflow run release.yml -R camunda/infra-tools\`."
         } >>"${GITHUB_STEP_SUMMARY}"
-
-  # Retry transient failures (e.g. GitHub API or registry errors); the run fails after the last attempt.
-  rerun-failed-jobs:
-    name: Rerun failed jobs
-    needs: [release-please, publish, mirror]
-    if: failure() && fromJSON(github.run_attempt) < 3
-    permissions:
-      id-token: write # Vault OIDC/JWT auth
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-    - name: Retrigger failed jobs
-      uses: camunda/infra-global-github-actions/rerun-failed-run@main
-      with:
-        run-id: ${{ github.run_id }}
-        repository: ${{ github.repository }}
-        vault-addr: ${{ secrets.VAULT_ADDR }}
-        vault-auth-method: jwt
-        vault-jwt-role: ${{ secrets.VAULT_JWT_ROLE }}
-        vault-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
-        vault-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
-
-  check:
-    name: Check Release
-    if: always()
-    permissions: {}
-    needs:
-    - release-please
-    - publish
-    - mirror
-    - rerun-failed-jobs
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-    - name: Check results
-      env:
-        ERROR: >-
-          ${{
-            contains(needs.*.result, 'failure') ||
-            contains(needs.*.result, 'cancelled')
-          }}
-      run: |
-        if [ "$ERROR" == "true" ]; then
-          echo "Some release jobs have failed or been cancelled."
-          exit 1
-        fi
-        echo "All release jobs passed or were skipped."

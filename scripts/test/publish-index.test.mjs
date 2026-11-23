@@ -97,3 +97,19 @@ test('a catalog version without its tag fails the release and pushes no index', 
   await assert.rejects(publishReleaseIndex(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs }), { message: 'maven 3.9.16: tag maven-3.9.16-r2 not found' });
   assert.equal(fake.manifest('0.1.0-tools'), undefined);
 });
+
+test('a release index already pushed with the same digest is not pushed again; a changed one replaces it', async () => {
+  fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
+  const first = await publishReleaseIndex(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
+  assert.equal(first.pushed, true);
+  fake.requests = [];
+  const again = await publishReleaseIndex(registry, '0.1.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
+  assert.deepEqual({ pushed: again.pushed, digest: again.digest }, { pushed: false, digest: first.digest });
+  assert.deepEqual(fake.requests.filter((r) => r.startsWith('PUT') || r.startsWith('POST')), []);
+  // A draft retargeted to a commit whose catalog changed.
+  fake.addToolImage('maven-3.9.17-r1', layers('maven 3.9.17'));
+  const catalogs = { ...releaseCatalogs, maven: [...releaseCatalogs.maven, catalogEntry(maven, '3.9.17', 1, '3.9')] };
+  const retargeted = await publishReleaseIndex(registry, '0.1.0', { tools: [javaTool, maven], catalogs });
+  assert.equal(retargeted.pushed, true);
+  assert.equal(fake.indexEntries('0.1.0-tools').length, 4);
+});
