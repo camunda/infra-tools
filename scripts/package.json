@@ -9,6 +9,6 @@
     "test": "node --test test/*.test.mjs"
   },
   "dependencies": {
-    "renovate": "44.251.0"
+    "renovate": "44.258.3"
   }
 }
