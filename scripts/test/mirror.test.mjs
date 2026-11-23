@@ -67,14 +67,12 @@ test('a release index the mirror holds with the same digest is left alone', asyn
   assert.deepEqual(mirror.fake.requests.filter((r) => !r.startsWith('GET') && !r.startsWith('HEAD')), []);
 });
 
-test('a mirror tag pointing to other content fails, naming both digests, and is left as it is', async () => {
-  addRelease(source.fake, '1.0.0-tools', ['3.9.16']);
+test("a mirror tag pointing to other content, such as a retargeted draft's earlier index, is replaced by the source's", async () => {
   addRelease(mirror.fake, '1.0.0-tools', ['3.9.15']);
-  const [ghcr, gar] = [await source.registry.digest('1.0.0-tools'), await mirror.registry.digest('1.0.0-tools')];
-  await assert.rejects(mirrorIndex(source.registry, mirror.registry, '1.0.0-tools'), {
-    message: `${mirror.fake.repository}:1.0.0-tools is ${gar}, not ${ghcr} as on ${source.fake.repository}: delete the mirror's tag, then run the workflow`,
-  });
-  assert.equal(await mirror.registry.digest('1.0.0-tools'), gar);
+  addRelease(source.fake, '1.0.0-tools', ['3.9.16']);
+  assert.equal(await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools'), true);
+  assert.equal(await mirror.registry.digest('1.0.0-tools'), await source.registry.digest('1.0.0-tools'));
+  assert.deepEqual(mirror.fake.indexEntries('1.0.0-tools'), source.fake.indexEntries('1.0.0-tools'));
 });
 
 test('layers the mirror holds are not uploaded again', async () => {

@@ -16,7 +16,7 @@ const RELEASE_STEPS = {
     state: STAYS_A_DRAFT,
   },
   mirror: {
-    context: (v) => `The release could not copy the \`${v}-tools\` index of release ${v} to a mirror, or the mirror's tag points to other content: a release is published only once every mirror holds its index, with the same digests (D65).`,
+    context: (v) => `The release could not copy the \`${v}-tools\` index of release ${v} to a mirror: a release is published only once every mirror holds its index, with the same digests (D65).`,
     state: STAYS_A_DRAFT,
   },
   notes: {
