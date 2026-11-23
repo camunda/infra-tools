@@ -3,30 +3,17 @@
 import { archOf, isRetired, PLATFORMS } from './tool-definition.mjs';
 import { compareVersions } from './versions.mjs';
 
-// The version of the latest release, from the release-please manifest (parsed; null when missing). release-please needs a
-// manifest from the start: its initial 0.0.0 is no release.
-export function releasedVersion(manifest) {
-  const version = manifest?.['.'];
-  return version === '0.0.0' ? undefined : version;
-}
-
-// The latest published release, given the release-please manifest (releasedVersion) and the tags of the registry: the highest
-// X.Y.Z among the index tags (X.Y.Z-tools) up to the manifest version. The release PR merge bumps the manifest before the
-// release's index is pushed (D60): until then, the release before it. None before the first release's index.
-export function latestPublishedRelease(manifest, tags) {
-  const version = releasedVersion(manifest);
-  return version && releaseVersions(tags).filter((v) => compareVersions(v, version) <= 0).at(-1);
-}
-
-// The tag of the index the action tests install from (latestPublishedRelease): the latest published release's, X.Y.Z-tools;
-// before the first one, the test index the Publish tool workflow fills.
-export function latestIndexTag(manifest, tags) {
-  const version = latestPublishedRelease(manifest, tags);
-  return version ? `${version}-tools` : 'tracer-tools';
-}
-
 // The tag name of a release X.Y.Z (tool releases are named after their tool image).
 export const RELEASE_VERSION = /^\d+\.\d+\.\d+$/;
+
+// The version X.Y.Z of the latest published release (ADR 0013), the one the action tests and the release notes preview read,
+// from GitHub's latest release (GET /releases/latest, null when missing): never a draft, so never an index pushed before its
+// release is published. Tool releases are never marked latest. Throws when there is none.
+export function latestReleaseVersion(release) {
+  if (!release) throw new Error('no published release: GitHub has no latest release');
+  if (!RELEASE_VERSION.test(release.tag_name)) throw new Error(`the latest GitHub release ${release.tag_name} is not a release X.Y.Z: mark the latest X.Y.Z as latest`);
+  return release.tag_name;
+}
 
 // The releases (X.Y.Z, not tool releases) still to publish, oldest first: the drafts, which their publication publishes last, and
 // those without an uploaded tools.json, such as a draft published by hand; a failed upload can leave it in the starter state.

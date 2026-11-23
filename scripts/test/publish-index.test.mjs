@@ -1,8 +1,8 @@
-// Adding tool versions to an index in a registry (scripts/index.mjs), against the fake registry.
+// Publishing a release index in a registry (scripts/index.mjs), against the fake registry.
 import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
 import { sha256 } from '../lib/oci.mjs';
-import { publishIndex, publishReleaseIndex } from '../lib/publish-index.mjs';
+import { publishReleaseIndex } from '../lib/publish-index.mjs';
 import { Registry } from '../lib/registry.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 import { catalogEntry } from './catalog-entry.mjs';
@@ -27,15 +27,6 @@ beforeEach(async () => {
 });
 after(() => fake.stop());
 
-test('adding a tool version to a missing index creates it with the tool image layers of every platform', async () => {
-  fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
-  await publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.16' }]);
-  assert.deepEqual(summary(fake.indexEntries('tracer-tools')), [
-    `linux/amd64 maven 3.9.16 r2 maven-3.9.16-r2 x64 bin ${digest('maven 3.9.16 amd64')}`,
-    `linux/arm64 maven 3.9.16 r2 maven-3.9.16-r2 arm64 bin ${digest('maven 3.9.16 arm64')}`,
-  ]);
-});
-
 const javaEntry = (platform) => ({
   platform,
   tool: 'java',
@@ -52,47 +43,6 @@ const javaEntry = (platform) => ({
   mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip',
 });
 
-test('an existing index keeps its other tool versions', async () => {
-  fake.addIndex('tracer-tools', [javaEntry('linux/amd64'), javaEntry('linux/arm64')]);
-  fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
-  await publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.16' }]);
-  assert.deepEqual(summary(fake.indexEntries('tracer-tools')), [
-    `linux/amd64 java 21.0.12+8 r1 java-21.0.12-8-r1 x64 null ${digest('java linux/amd64')}`,
-    `linux/amd64 maven 3.9.16 r2 maven-3.9.16-r2 x64 bin ${digest('maven 3.9.16 amd64')}`,
-    `linux/arm64 java 21.0.12+8 r1 java-21.0.12-8-r1 aarch64 null ${digest('java linux/arm64')}`,
-    `linux/arm64 maven 3.9.16 r2 maven-3.9.16-r2 arm64 bin ${digest('maven 3.9.16 arm64')}`,
-  ]);
-});
-
-test('adding a tool version again leaves the index as it was', async () => {
-  fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
-  const first = await publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.16' }]);
-  const second = await publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.16' }]);
-  assert.equal(second.digest, first.digest);
-});
-
-test('a tool image whose layers changed at the same revision is refused and the index is left as it was', async () => {
-  fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
-  await publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.16' }]);
-  const before = fake.manifest('tracer-tools');
-  fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16 rebuilt'));
-  await assert.rejects(publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.16' }]), {
-    message: /maven 3\.9\.16 \(linux\/amd64\): layer changed without a higher revision/,
-  });
-  assert.deepEqual(fake.manifest('tracer-tools'), before);
-});
-
-test('a tool version without its tool image fails and pushes nothing', async () => {
-  await assert.rejects(publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.16' }]), { message: /maven-3\.9\.16-r2: HTTP 404/ });
-  assert.equal(fake.manifest('tracer-tools'), undefined);
-});
-
-test('a version its tool definition does not publish is refused', async () => {
-  await assert.rejects(publishIndex(registry, 'tracer-tools', [{ tool: maven, version: '3.9.15' }]), {
-    message: 'tools/maven/tool.json: maven 3.9.15 is not published by line 3.9',
-  });
-});
-
 // The release index (spec §5.5): previous release's index + catalog − retired versions.
 const javaTool = parseToolDefinition('java', {
   source: { datasource: 'java-version' },
@@ -105,7 +55,7 @@ test('a release index is the previous release index plus the catalog minus retir
   fake.addIndex('0.2.0-tools', [javaEntry('linux/amd64'), javaEntry('linux/arm64')]);
   fake.addIndex('0.1.0-tools', []);
   fake.addIndex('0.10.0-tools', []);
-  fake.addIndex('tracer-tools', []);
+  fake.addIndex('test-tools', []);
   fake.addToolImage('maven-3.9.16-r2', layers('maven 3.9.16'));
   const release = await publishReleaseIndex(registry, '0.3.0', { tools: [javaTool, maven], catalogs: releaseCatalogs });
   assert.equal(release.previousVersion, '0.2.0');

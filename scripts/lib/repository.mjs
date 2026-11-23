@@ -71,9 +71,6 @@ export async function writeCatalog(name, entries) {
   await writeFile(join(ROOT, 'published', `${name}.json`), `${JSON.stringify(entries, null, 2)}\n`);
 }
 
-// The release-please manifest, which holds the version of the latest release ('.').
-export const RELEASE_MANIFEST = '.github/config/.release-please-manifest.json';
-
 async function readOptional(path) {
   try {
     return await readFile(path, 'utf8');

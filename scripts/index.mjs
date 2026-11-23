@@ -8,41 +8,34 @@
 // node index.mjs mirror --image <registry>/<repository> --mirror <registry>/<repository> --user <name>
 //   Copies the release indexes the mirror lacks (lib/mirror.mjs), logged in as --user with MIRROR_TOKEN.
 //
-// node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>
-//   Prints the index the action tests install from (lib/release.mjs latestIndexTag): the latest published release's, up to
-//   the release-please manifest version at --ref, or the tracer index before the first one. Uses gh and its token, and
-//   GITHUB_TOKEN for the registry.
-//
-// node index.mjs tracer --index <registry>/<repository>:<tag> <tool>@<version>...
-//   Until the first release, for the manual Publish tool workflow: adds the tool images of the given tool versions to the
-//   index at --index (lib/publish-index.mjs publishIndex) and pushes it.
+// node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name>
+//   Prints the index the action tests install from: the latest published release's (lib/release.mjs latestReleaseVersion).
+//   Uses gh and its token.
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { mirrorReleases } from './lib/mirror.mjs';
-import { publishIndex } from './lib/publish-index.mjs';
 import { publishRelease } from './lib/publish-release.mjs';
 import { Registry } from './lib/registry.mjs';
-import { latestIndexTag, unpublishedReleases } from './lib/release.mjs';
-import { ghApi, ghJson, readToolDefinition, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
+import { latestReleaseVersion, unpublishedReleases } from './lib/release.mjs';
+import { ghApi, ghJson, ROOT } from './lib/repository.mjs';
 
 const USAGE = {
   release: 'node index.mjs release --image <registry>/<repository> --repository <owner>/<name> [--out <dir>]',
   mirror: 'node index.mjs mirror --image <registry>/<repository> --mirror <registry>/<repository> --user <name>',
-  'latest-index': 'node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name> --ref <commit>',
-  tracer: 'node index.mjs tracer --index <registry>/<repository>:<tag> <tool>@<version>...',
+  'latest-index': 'node index.mjs latest-index --image <registry>/<repository> --repository <owner>/<name>',
 };
-const COMMANDS = { release: publishReleases, mirror: copyToMirror, 'latest-index': printLatestIndex, tracer: addToTracerIndex };
+const COMMANDS = { release: publishReleases, mirror: copyToMirror, 'latest-index': printLatestIndex };
 
 const [command, ...args] = process.argv.slice(2);
 if (!COMMANDS[command]) throw new Error(`usage:\n${Object.values(USAGE).join('\n')}`);
 await COMMANDS[command](args);
 
 // Options of a command, all strings; throws its usage when a required one is missing.
-function options(command, args, { required, defaults = {}, positionals = false }) {
+function options(command, args, { required, defaults = {} }) {
   const names = [...required, ...Object.keys(defaults)];
-  const parsed = parseArgs({ args, options: Object.fromEntries(names.map((name) => [name, { type: 'string', ...(name in defaults && { default: defaults[name] }) }])), allowPositionals: positionals });
-  if (required.some((name) => !parsed.values[name]) || (positionals && !parsed.positionals.length)) throw new Error(`usage: ${USAGE[command]}`);
+  const parsed = parseArgs({ args, options: Object.fromEntries(names.map((name) => [name, { type: 'string', ...(name in defaults && { default: defaults[name] }) }])) });
+  if (required.some((name) => !parsed.values[name])) throw new Error(`usage: ${USAGE[command]}`);
   return parsed;
 }
 
@@ -92,24 +85,8 @@ async function publishOneRelease(release, { image, repository, out }) {
 }
 
 async function printLatestIndex(args) {
-  const { values } = options('latest-index', args, { required: ['image', 'repository', 'ref'] });
-  // null before the release-please manifest exists.
-  const manifest = ghJson(`repos/${values.repository}/contents/${RELEASE_MANIFEST}?ref=${values.ref}`, { accept: 'application/vnd.github.raw+json' });
-  const index = `${values.image}:${latestIndexTag(manifest, await new Registry(values.image).tags())}`;
+  const { values } = options('latest-index', args, { required: ['image', 'repository'] });
+  const index = `${values.image}:${latestReleaseVersion(ghJson(`repos/${values.repository}/releases/latest`))}-tools`;
   console.error(`Action tests install from ${index}`);
   console.log(index);
-}
-
-async function addToTracerIndex(args) {
-  const { values, positionals } = options('tracer', args, { required: ['index'], positionals: true });
-  const [repository, tag] = values.index.split(/:(?=[^:/]+$)/);
-  if (!tag) throw new Error(`usage: ${USAGE.tracer}`);
-  const toolVersions = [];
-  for (const selector of positionals) {
-    const [name, version] = selector.split('@');
-    toolVersions.push({ tool: await readToolDefinition(name), version });
-  }
-  const { entries, digest } = await publishIndex(new Registry(repository), tag, toolVersions);
-  console.log(`pushed ${values.index}@${digest}: ${entries.length} tool layers`);
-  for (const e of entries) console.log(`  ${e.platform} ${e.tool} ${e.version} ${e.tag} ${e.digest}`);
 }

@@ -1,8 +1,8 @@
 // Usage: node pull-request.mjs --image <registry>/<repository> --repository <owner>/<name> [--base <git ref>] [--out <dir>]
 //          [--comment <PR number>]
 // Checks of a pull request (lib/pull-request.mjs) against the PR's merge commit, whose first parent is the base (--base,
-// default HEAD^1). Reads only: upstream versions, and published tags and indexes in --image; never builds or pushes. Writes to
-// --out (default build/out/pull-request):
+// default HEAD^1). Reads only: upstream versions, the latest published release of --repository, and published tags and
+// indexes in --image; never builds or pushes. Writes to --out (default build/out/pull-request):
 // - builds.json: the tool versions to build and test in dry run (scripts/build.mjs without --push);
 // - comment.md: the PR comment, with the revision errors and warnings and the release notes preview; not written when no tool
 //   changed.
@@ -16,9 +16,9 @@ import { parseArgs } from 'node:util';
 import { FIX_PR_LABEL, trackedVersions } from './lib/fix-pr.mjs';
 import { checkPullRequest, previewComment, previewCommentUpdate } from './lib/pull-request.mjs';
 import { readIndex } from './lib/publish-index.mjs';
-import { latestPublishedRelease } from './lib/release.mjs';
 import { Registry } from './lib/registry.mjs';
-import { ghApi, ghJson, readCatalog, readPullRequests, readToolDefinition, readToolNames, RELEASE_MANIFEST, ROOT } from './lib/repository.mjs';
+import { latestReleaseVersion } from './lib/release.mjs';
+import { ghApi, ghJson, readCatalog, readPullRequests, readToolDefinition, readToolNames, ROOT } from './lib/repository.mjs';
 import { parseToolDefinition } from './lib/tool-definition.mjs';
 
 const { values } = parseArgs({
@@ -50,18 +50,9 @@ for (const name of names) {
   baseTools[name] = parseToolDefinition(name, JSON.parse(json));
 }
 
-// The latest published release, up to the version of the manifest at the base: a release PR already holds the next version,
-// and a merged one until its index is pushed.
-let manifest;
-try {
-  manifest = git('show', `${values.base}:${RELEASE_MANIFEST}`);
-} catch {
-  // before the first release
-}
 const registry = new Registry(values.image);
 const tags = await registry.tags();
-const previousVersion = latestPublishedRelease(manifest && JSON.parse(manifest), tags);
-const previousTag = `${previousVersion}-tools`;
+const previousVersion = latestReleaseVersion(ghJson(`repos/${values.repository}/releases/latest`));
 
 const { builds, errors, warnings, notes } = await checkPullRequest({
   tools,
@@ -69,7 +60,7 @@ const { builds, errors, warnings, notes } = await checkPullRequest({
   changedFiles,
   plan: { tags: new Set(tags), platformsOf: (tag) => registry.toolImagePlatforms(tag), now: Date.now() },
   catalogs,
-  previousRelease: { index: previousVersion ? await readIndex(registry, previousTag) : [], version: previousVersion },
+  previousRelease: { index: await readIndex(registry, `${previousVersion}-tools`), version: previousVersion },
   toolImageLayers: (tag) => registry.toolImageLayers(tag),
   repository: values.repository,
   fixPrs: trackedVersions(readPullRequests(values.repository, FIX_PR_LABEL)),

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { buildIndex, latestIndexTag, latestPublishedRelease, previousRelease, releaseBody, releasedVersion, releaseNotes, toolsJson, unpublishedReleases } from '../lib/release.mjs';
+import { buildIndex, latestReleaseVersion, previousRelease, releaseBody, releaseNotes, toolsJson, unpublishedReleases } from '../lib/release.mjs';
 import { parseToolDefinition } from '../lib/tool-definition.mjs';
 
 const java = parseToolDefinition('java', {
@@ -123,35 +123,19 @@ test('the first release has no previous index, and a release without tool change
 });
 
 test('the previous release is the highest X.Y.Z index below the release, by number', () => {
-  const tags = ['0.2.0-tools', '0.10.0-tools', '0.9.0-tools', 'tracer-tools', 'maven-3.9.16-r1', '1.0.0-tools'];
+  const tags = ['0.2.0-tools', '0.10.0-tools', '0.9.0-tools', 'test-tools', 'maven-3.9.16-r1', '1.0.0-tools'];
   assert.equal(previousRelease(tags, '0.11.0'), '0.10.0');
   assert.equal(previousRelease(tags, '0.10.0'), '0.9.0');
   assert.equal(previousRelease(tags, '0.2.0'), undefined);
 });
 
-test('the latest release is the version of the release-please manifest, none before the first release', () => {
-  assert.equal(releasedVersion({ '.': '0.3.0' }), '0.3.0');
-  // release-please needs a manifest: it starts at 0.0.0, which no release has.
-  assert.equal(releasedVersion({ '.': '0.0.0' }), undefined);
-  assert.equal(releasedVersion(null), undefined);
-});
-
-test('the latest published release is the manifest version once its index is pushed, the release before it until then', () => {
-  const tags = ['0.2.0-tools', '0.3.0-tools', 'maven-3.9.16-r2', 'tracer-tools', 'test-1138-tools'];
-  assert.equal(latestPublishedRelease({ '.': '0.3.0' }, tags), '0.3.0');
-  // The release PR merge bumps the manifest before the release's index is pushed.
-  assert.equal(latestPublishedRelease({ '.': '0.4.0' }, tags), '0.3.0');
-  // A base before a later release keeps its own release.
-  assert.equal(latestPublishedRelease({ '.': '0.2.0' }, tags), '0.2.0');
-  assert.equal(latestPublishedRelease({ '.': '0.1.0' }, tags), undefined);
-  assert.equal(latestPublishedRelease({ '.': '0.0.0' }, tags), undefined);
-  assert.equal(latestPublishedRelease(null, tags), undefined);
-});
-
-test('the action tests install from the index of the latest published release, or from the tracer index before the first one', () => {
-  assert.equal(latestIndexTag({ '.': '0.4.0' }, ['0.3.0-tools']), '0.3.0-tools');
-  assert.equal(latestIndexTag({ '.': '1.0.0' }, ['tracer-tools']), 'tracer-tools');
-  assert.equal(latestIndexTag(null, ['0.3.0-tools']), 'tracer-tools');
+test('the latest release is the X.Y.Z of the latest published GitHub release; none, or a tool release marked latest, fails', () => {
+  assert.equal(latestReleaseVersion({ tag_name: '1.1.0' }), '1.1.0');
+  // GET /releases/latest is a 404 (null) before the first release is published.
+  assert.throws(() => latestReleaseVersion(null), { message: 'no published release: GitHub has no latest release' });
+  assert.throws(() => latestReleaseVersion({ tag_name: 'maven-3.9.16-r1' }), {
+    message: 'the latest GitHub release maven-3.9.16-r1 is not a release X.Y.Z: mark the latest X.Y.Z as latest',
+  });
 });
 
 test('every draft release and every release without tools.json is left to publish, oldest first; tool releases are not releases', () => {

@@ -63,11 +63,11 @@ test('release indexes already on the mirror and other tags are left alone, and s
   addRelease(source.fake, '1.0.0-tools', ['3.9.16']);
   await mirrorReleases(source.registry, mirror.registry);
   addRelease(source.fake, '1.1.0-tools', ['3.9.16', '3.10.1']);
-  addRelease(source.fake, 'tracer-tools', ['3.10.1']);
+  addRelease(source.fake, 'test-tools', ['3.10.1']);
   mirror.fake.requests = [];
   const copied = await mirrorReleases(source.registry, mirror.registry);
   assert.deepEqual(copied, ['1.1.0-tools']);
-  assert.ok(!mirror.fake.manifests.has('tracer-tools'));
+  assert.ok(!mirror.fake.manifests.has('test-tools'));
   const uploads = mirror.fake.requests.filter((r) => r.startsWith('PUT') && r.includes('/blobs/uploads/'));
   assert.equal(uploads.length, 2, 'only the layers of 3.10.1');
 });
