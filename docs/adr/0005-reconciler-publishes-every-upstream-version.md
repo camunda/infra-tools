@@ -7,3 +7,7 @@ A scheduled reconciler lists each tool's upstream versions through Renovate's da
 - **One Renovate PR per version line**: leaves gaps when several versions are released in a burst, and Renovate cannot add a line for a new major on its own.
 - **Reconciler without PRs** (containerbase): failures don't get a place where the fix is reviewed.
 - **Moving lines** (docker-library): rebuilds tags in place, which breaks immutable tool images.
+
+## Amendment: failure issues replace fix PRs (ADR 0012)
+
+A version that fails to build or test is tracked in a failure issue, not a fix PR: the fix is an ordinary pull request, and ignoring a version is a reviewed change to its tool definition.

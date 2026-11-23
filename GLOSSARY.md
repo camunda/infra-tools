@@ -54,13 +54,25 @@ _Avoid_: line image, toolset image, bundle image, runner image
 The scheduled process that publishes every upstream version within a tool's version lines that is not published yet.
 _Avoid_: publisher, Renovate bot
 
-**Fix PR**:
-A pull request the reconciler opens for a tool version that fails to build or test; the fix lands in it.
-_Avoid_: failure issue
+**Tool failure**:
+A tool version that fails to build or test; the reconciler retries it on every run until it builds or its version line no longer publishes it.
+_Avoid_: build failure, broken version
+
+**Run failure**:
+A step of a reconciler or release run that fails for a reason other than a tool failure, such as a registry push or a release publication.
+_Avoid_: pipeline failure, job failure
+
+**Failure issue**:
+The GitHub issue tracking one failure, with what happened and how to fix it; it follows the failure's state, closing once the failure is gone and reopening while it lasts.
+_Avoid_: fix PR, alert, incident
 
 **Catalog**:
 The in-repository record of every published tool version, written by the reconciler.
 _Avoid_: published list, inventory
+
+**Record commit**:
+The reconciler's commit adding newly published tool versions, and the retirements of its tool definitions, to the catalog.
+_Avoid_: catalog commit, publish commit
 
 **Tool release**:
 A GitHub release documenting one published tool image.
