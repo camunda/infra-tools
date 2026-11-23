@@ -3,7 +3,8 @@ name: Release merge
 
 # Daily release (spec §5.5, D25, D56): enables GitHub auto-merge on the open release PR of release-please as the Infra -
 # Releases App, no bypass actor of the main ruleset: GitHub merges it once its required checks pass (the "Allow auto-merge"
-# repository setting must be on), and release.yml then creates and publishes the release.
+# repository setting must be on), and release.yml then creates and publishes the release. A failure alerts #infra-alerts
+# (D54, D63).
 on:
   schedule:
   - cron: '0 5 * * *' # every day at 05:00 UTC
@@ -15,7 +16,10 @@ jobs:
   merge:
     name: Enable auto-merge on the release PR
     permissions:
+      checks: read # gh pr checks, with the job's token
       id-token: write # Vault OIDC/JWT auth
+      pull-requests: read # gh pr checks, with the job's token
+      statuses: read # gh pr checks, with the job's token
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -43,11 +47,14 @@ jobs:
         permission-contents: write # the squash merge GitHub makes on auto-merge
         permission-pull-requests: write # enable auto-merge on the release PR
 
-    # A release PR labelled no-merge is left alone.
+    # A release PR labelled no-merge is left alone. One an earlier run already set to auto-merge, and still open, fails the run,
+    # naming it, unless its required checks are still running (gh pr checks exits 8 while one is pending, 1 when one fails). The
+    # checks are read with the job's token: the App's has no Checks permission.
     - name: Enable auto-merge on the release PR
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }}
         GH_REPO: ${{ github.repository }}
+        CHECKS_TOKEN: ${{ github.token }}
       run: |
         PR=$(gh pr list --label "autorelease: pending" --json number,labels --jq '
           [.[] | select(.labels | map(.name) | index("no-merge") | not)] | first | .number')
@@ -55,6 +62,26 @@ jobs:
         if [ -z "$PR" ] || [ "$PR" = "null" ]; then
           echo "No release PR found."
           exit 0
+        fi
+
+        AUTO_MERGE=$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')
+        if [ "$AUTO_MERGE" = "true" ]; then
+          CHECKS=0
+          GH_TOKEN="$CHECKS_TOKEN" gh pr checks "$PR" --required || CHECKS=$?
+          if [ "$CHECKS" -eq 8 ]; then
+            echo "Release PR #${PR} is set to auto-merge, its required checks are still running."
+            exit 0
+          fi
+          REASON="a required check fails"
+          [ "$CHECKS" -eq 0 ] && REASON="its required checks pass, another merge requirement is not met"
+          echo "::error::Release PR #${PR} is still open although an earlier run set it to auto-merge: ${REASON}."
+          {
+            echo "## Release PR #${PR} left unmerged"
+            echo
+            echo "An earlier run set it to auto-merge, and GitHub has not merged it: ${REASON}."
+            echo "See \`gh pr checks ${PR} --required -R ${GH_REPO}\` and \`gh pr view ${PR} -R ${GH_REPO}\`; once fixed, GitHub merges it."
+          } >>"${GITHUB_STEP_SUMMARY}"
+          exit 1
         fi
 
         echo "Enabling auto-merge on release PR #${PR}"
@@ -66,8 +93,8 @@ jobs:
         {
           echo "## Release merge failed"
           echo
-          echo "Inspect the failed step in the job logs. A transient GitHub error reruns the failed jobs up to attempt 3."
-          echo "The next daily run enables auto-merge on the release PR again."
+          echo "Inspect the failed step in the job logs. A transient GitHub error reruns the failed jobs up to attempt 3;"
+          echo "any other failure, or the last attempt, alerts #infra-alerts. The next daily run tries again."
         } >>"${GITHUB_STEP_SUMMARY}"
 
   # Retry transient failures (e.g. GitHub 504s); the run fails on any other failure or after the last attempt.
@@ -79,13 +106,19 @@ jobs:
       id-token: write # Vault OIDC/JWT auth
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # The transient GitHub errors retried, one per line, for the alert job too. Not in the merge job's environment: its log,
+    # where they are searched, would always match.
+    env:
+      RETRIED_ERRORS: |
+        code: 504
+        non-200 OK status
+    outputs:
+      retried-errors: ${{ env.RETRIED_ERRORS }}
     steps:
     - name: Retrigger failed jobs
       uses: camunda/infra-global-github-actions/rerun-failed-run@main
       with:
-        error-messages: |
-          code: 504
-          non-200 OK status
+        error-messages: ${{ env.RETRIED_ERRORS }}
         run-id: ${{ github.run_id }}
         repository: ${{ github.repository }}
         vault-addr: ${{ secrets.VAULT_ADDR }}
@@ -94,6 +127,57 @@ jobs:
         vault-jwt-path: ${{ secrets.VAULT_JWT_PATH }}
         vault-jwt-audience: ${{ secrets.VAULT_JWT_AUDIENCE }}
 
+  # No failure issue (ADR 0012): the fix is a rerun, or the release PR's checks. A failure rerun-failed-jobs retries alerts only
+  # on its last attempt, or when the rerun could not be requested.
+  alert:
+    name: 'Alert #infra-alerts'
+    needs: [merge, rerun-failed-jobs]
+    if: always() && needs.merge.result == 'failure'
+    permissions:
+      actions: read # read the failed job's log
+      id-token: write # Vault OIDC/JWT auth
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+    - name: Import Secrets
+      id: secrets
+      uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+      with:
+        url: ${{ secrets.VAULT_ADDR }}
+        method: jwt
+        role: ${{ secrets.VAULT_JWT_ROLE }}
+        path: ${{ secrets.VAULT_JWT_PATH }}
+        jwtGithubAudience: ${{ secrets.VAULT_JWT_AUDIENCE }}
+        exportEnv: false # we rely on step outputs, no need for environment variables
+        secrets: |
+          secret/data/products/infra/ci/infra-core SLACK_WEBHOOK_INFRA_ALERTS;
+
+    - name: 'Alert #infra-alerts'
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPOSITORY: ${{ github.repository }}
+        RUN_ID: ${{ github.run_id }}
+        RUN_ATTEMPT: ${{ github.run_attempt }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        SLACK_WEBHOOK: ${{ steps.secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
+        RERUN: ${{ needs.rerun-failed-jobs.result }}
+        RETRIED_ERRORS: ${{ needs.rerun-failed-jobs.outputs.retried-errors }}
+      run: |
+        # 3: the last attempt of rerun-failed-jobs. A rerun not requested, or logs that cannot be read, alert.
+        if [ "$RUN_ATTEMPT" -lt 3 ] && [ "$RERUN" = "success" ]; then
+          LOGS=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/attempts/${RUN_ATTEMPT}/jobs" \
+            --jq '.jobs[] | select(.conclusion == "failure") | .id' |
+            while read -r JOB; do gh api "repos/${REPOSITORY}/actions/jobs/${JOB}/logs"; done) || LOGS=""
+          if grep -qF -f <(grep . <<<"$RETRIED_ERRORS") <<<"$LOGS"; then
+            echo "A transient error: rerun-failed-jobs reruns the failed jobs, no alert."
+            exit 0
+          fi
+        fi
+
+        TEXT=":rotating_light: Release merge failed: <${RUN_URL}|run ${RUN_ID}>. Rerun: \`gh workflow run release-merge.yml -R ${REPOSITORY}\`"
+        jq -n --arg text "$TEXT" '{text: $text}' |
+          curl --fail --silent --show-error -X POST -H 'Content-Type: application/json' --data @- "$SLACK_WEBHOOK"
+
   check:
     name: Check Release merge
     if: always()
@@ -101,6 +185,7 @@ jobs:
     needs:
     - merge
     - rerun-failed-jobs
+    - alert
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
