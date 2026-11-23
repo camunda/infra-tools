@@ -119,6 +119,8 @@ function validateLines(tool, fail) {
     for (const option of ['versions', 'ignoredVersions']) {
       if (line[option] !== undefined && !isVersionList(line[option])) lineFail(`${option} is a list of versions`);
     }
+    // Ignoring a version is a reviewed decision, not a closed issue (ADR 0012): the line says why.
+    if (line.ignoredVersions?.length && !line.reason) lineFail('ignoredVersions needs the reason of the line, why they are never published (ADR 0012)');
     const revisions = Object.entries(line.revisions ?? {});
     if (revisions.some(([, r]) => !Number.isInteger(r) || r < 1)) lineFail('revisions maps a version to a revision number from 1');
     if (key === ANY) {

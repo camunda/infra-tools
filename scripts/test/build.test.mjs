@@ -10,7 +10,7 @@ const java = parseToolDefinition('java', {
 });
 const maven = parseToolDefinition('maven', {
   source: { datasource: 'maven' },
-  publish: { lines: { 3.9: { versions: ['3.9.16'], ignoredVersions: ['3.9.15'] }, '*': { from: '3.10.0', retired: ['3.10.1'] } } },
+  publish: { lines: { 3.9: { versions: ['3.9.16'], ignoredVersions: ['3.9.15'], reason: '3.9.15 fails' }, '*': { from: '3.10.0', retired: ['3.10.1'] } } },
   install: { addToPath: 'bin' },
   test: { packages: ['openjdk-21-jre-headless', 'libatomic1'] },
 });

@@ -14,19 +14,11 @@ export async function checkCatalogTags({ catalogs, tagExists }) {
   if (lost.length) throw new Error(`published versions lost their tag; published tool images never change:\n${lost.join('\n')}`);
 }
 
-// Completeness check (R17): fails when a version in range is neither published nor tracked, once the run's builds are recorded
-// and its failures are in fix PRs. plans: planTool's result per tool then, with the fix PRs: tracked versions wait, are ignored
-// (skipped) or are retried by an open fix PR (fixPr set).
-export function checkCompleteness(plans) {
-  const gaps = Object.values(plans).flatMap((plan) => plan.versions.filter((v) => v.decision === 'publish' && !v.fixPr).map((v) => `${plan.tool} ${v.version} (${v.reason})`));
-  if (gaps.length) throw new Error(`versions in range neither published nor tracked by a fix PR (R17), see the build jobs of this run:\n${gaps.join('\n')}`);
-}
-
 // A platform upstream has not published a version for after this long is reported (D62).
 const LATE_AFTER = 7 * 24 * 60 * 60 * 1000;
 
 // Versions published or planned without some platform upstream lacks for 7 days or more after their release, or with no release
-// date (D62): tracked by R17, they need no fix PR, but someone should know. plans: planTool's result per tool.
+// date (D62): tracked by R17, they need no failure issue, but someone should know. plans: planTool's result per tool.
 export function latePlatforms(plans, now) {
   return Object.values(plans).flatMap((plan) =>
     plan.versions

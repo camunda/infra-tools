@@ -10,13 +10,33 @@ const ACCEPT = [
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Waits before each retry of a transient error (ADR 0012): a step fails only when its error persists.
+const RETRY_DELAYS = [2000, 4000, 8000];
+// Statuses of a transient error: a rate limit, a server or gateway error.
+const transient = (status) => status === 429 || status >= 500;
+
+// fetch, retrying network errors and transient statuses after each of delays; the last response or error stands.
+async function fetchRetrying(url, options, delays) {
+  for (let retry = 0; ; retry++) {
+    let res;
+    try {
+      res = await fetch(url, options);
+    } catch (err) {
+      if (retry >= delays.length) throw err;
+    }
+    if (res && (!transient(res.status) || retry >= delays.length)) return res;
+    await res?.body?.cancel();
+    await sleep(delays[retry]);
+  }
+}
+
 // tagExists(tag) of checkCatalogTags against the tags of registry (Registry.exists).
 export const tagExists = (registry) => (tag) => registry.exists(tag);
 
 export class Registry {
   // repository: <registry>/<name>, e.g. ghcr.io/camunda/infra-tools.
-  // user: token exchange user name. scheme: http for tests only.
-  constructor(repository, { token = process.env.GITHUB_TOKEN, user = 'token', scheme = 'https' } = {}) {
+  // user: token exchange user name. scheme: http for tests only. retryDelays: the waits before each retry of a transient error.
+  constructor(repository, { token = process.env.GITHUB_TOKEN, user = 'token', scheme = 'https', retryDelays = RETRY_DELAYS } = {}) {
     const slash = repository.indexOf('/');
     this.repository = repository;
     this.host = repository.slice(0, slash);
@@ -25,30 +45,19 @@ export class Registry {
     this.token = token;
     this.user = user;
     this.bearer = {};
+    this.retryDelays = retryDelays;
   }
 
-  // Retries network errors and 5xx; any status outside `ok` throws, so an outage never reads as "missing".
+  // Retries network errors, rate limits and server errors with backoff; any status outside `ok` throws, so an outage never
+  // reads as "missing".
   async request(path, { method = 'GET', headers = {}, body, push = false, ok = [200] } = {}) {
     const scope = push ? 'pull,push' : 'pull';
     const url = /^https?:\/\//.test(path) ? path : `${this.base}${path}`;
-    for (let attempt = 1; ; attempt++) {
+    for (;;) {
       const auth = this.bearer[scope] ? { Authorization: `Bearer ${this.bearer[scope]}` } : {};
-      let res;
-      try {
-        res = await fetch(url, { method, headers: { ...headers, ...auth }, body });
-      } catch (err) {
-        if (attempt < 3) {
-          await sleep(attempt * 1000);
-          continue;
-        }
-        throw err;
-      }
+      const res = await fetchRetrying(url, { method, headers: { ...headers, ...auth }, body }, this.retryDelays);
       if (res.status === 401 && !this.bearer[scope]) {
         await this.login(res.headers.get('www-authenticate'), scope);
-        continue;
-      }
-      if (res.status >= 500 && attempt < 3) {
-        await sleep(attempt * 1000);
         continue;
       }
       if (!ok.includes(res.status)) throw new Error(`${method} ${url}: HTTP ${res.status} ${(await res.text()).slice(0, 300)}`);
@@ -63,7 +72,7 @@ export class Registry {
     if (params.service) url.searchParams.set('service', params.service);
     url.searchParams.set('scope', `repository:${this.name}:${scope}`);
     const headers = this.token ? { Authorization: `Basic ${Buffer.from(`${this.user}:${this.token}`).toString('base64')}` } : {};
-    const res = await fetch(url, { headers });
+    const res = await fetchRetrying(url, { headers }, this.retryDelays);
     if (!res.ok) throw new Error(`${this.host}: token request failed: HTTP ${res.status}`);
     const json = await res.json();
     this.bearer[scope] = json.token ?? json.access_token;

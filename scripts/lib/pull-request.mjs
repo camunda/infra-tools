@@ -40,15 +40,15 @@ function staleRevisions(tool, base, tags) {
 // tools: every tool definition at the PR head; baseTools: the PR base's, by name. changedFiles: paths changed by the PR.
 // plan: planTool's options (lookup, tags, platformsOf, now). catalogs: the catalog entries of every tool, by name. previousRelease:
 // the index and version of the latest release (none: { index: [] }). toolImageLayers(tag): the layers of a published tool
-// image (Registry.toolImageLayers). repository: owner/name, for tool release links. fixPrs: the versions fix PRs track, by
-// tool (lib/fix-pr.mjs trackedVersions): planned as the reconciler plans them, those of a fix PR closed without merge ignored.
+// image (Registry.toolImageLayers). repository: owner/name, for tool release links. Planned as the reconciler plans them: a
+// version that fails is planned, so the PR fails until it fixes the version or ignores it (ADR 0012).
 // Returns:
 // - builds: the dry run, the planned versions of every changed tool plus its latest published version per major (catalog
 //   entries, built by scripts/build.mjs even when the tool definition no longer publishes them);
 // - errors: manual revisions the PR sets that are not above the highest published revision of their version;
 // - warnings: published versions whose build files changed without a revision bump (published tool images never change);
 // - notes: the release notes of the next release once the planned versions are published, or null when no tool changed.
-export async function checkPullRequest({ tools, baseTools, changedFiles, plan: planOptions, catalogs, previousRelease, toolImageLayers, repository, fixPrs = {} }) {
+export async function checkPullRequest({ tools, baseTools, changedFiles, plan: planOptions, catalogs, previousRelease, toolImageLayers, repository }) {
   const { index: previousIndex, version: previousVersion } = previousRelease;
   const builds = [];
   const errors = [];
@@ -57,7 +57,7 @@ export async function checkPullRequest({ tools, baseTools, changedFiles, plan: p
   const changedTools = tools.filter((t) => toolFiles(t, changedFiles).length);
   for (const tool of changedTools) {
     errors.push(...staleRevisions(tool, baseTools[tool.name], planOptions.tags));
-    const plan = await planTool(tool, { ...planOptions, fixPrs: fixPrs[tool.name] });
+    const plan = await planTool(tool, planOptions);
     planned[tool.name] = plan.versions.filter((v) => v.decision === 'publish');
     const plannedVersions = new Set(planned[tool.name].map((v) => v.version));
     // A version stays available to consumers until it is retired, even out of every line or delisted upstream: available

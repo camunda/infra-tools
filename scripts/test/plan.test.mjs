@@ -38,7 +38,7 @@ test('a line publishes from its from on, "*" publishes newer versions in no othe
 test('every line state decides its versions (D41)', async () => {
   const tool = java({
     17: { retired: 'all' },
-    21: { from: '21.0.12', versions: ['21.0.10+7'], ignoredVersions: ['21.0.13+5'], retired: ['21.0.12+8'], revisions: { '21.0.14+2': 2 } },
+    21: { from: '21.0.12', versions: ['21.0.10+7'], ignoredVersions: ['21.0.13+5'], retired: ['21.0.12+8'], revisions: { '21.0.14+2': 2 }, reason: '21.0.13+5 fails' },
     25: { reason: 'stopped', revisions: { '25.0.1+8': 3 } },
     '*': { from: '27.0.0' },
   });
@@ -173,9 +173,20 @@ test('a version whose tag exists is published already; a revision bump plans the
   ]);
 });
 
-test('upstream and registry outages fail the plan, never read as "no versions"', async () => {
+test('a failed upstream lookup is retried with backoff, so a transient error does not fail the plan (ADR 0012)', async () => {
+  const answers = [null, new Error('ECONNRESET'), { releases: [{ version: '27.0.0+35', releaseTimestamp: old }] }];
+  const lookup = async () => {
+    const answer = answers.shift();
+    if (answer instanceof Error) throw answer;
+    return answer;
+  };
+  const plan = await planTool(java({ '*': { from: '27.0.0' } }), { lookup, tags: noTags, now, retryDelays: [0, 0] });
+  assert.deepEqual(decisions(plan), ['27.0.0+35: publish (new)']);
+});
+
+test('upstream and registry outages that persist past the retries fail the plan, never read as "no versions"', async () => {
   const tool = java({ '*': { from: '27.0.0' } });
-  const plan = (options) => planTool(tool, { lookup: upstream(['27.0.0+35']), tags: noTags, now, ...options });
+  const plan = (options) => planTool(tool, { lookup: upstream(['27.0.0+35']), tags: noTags, now, retryDelays: [0], ...options });
   // Renovate's getPkgReleases returns null when a lookup fails.
   await assert.rejects(plan({ lookup: async () => null }), { message: 'java: no upstream versions from java-version java (lookup failed or empty)' });
   await assert.rejects(plan({ lookup: async () => ({ releases: [] }) }), { message: 'java: no upstream versions from java-version java (lookup failed or empty)' });
@@ -201,22 +212,4 @@ test('the plan links the upstream project, its source repository first, for the 
   assert.equal((await plan({ sourceUrl: 'https://github.com/adoptium/jdk', homepage: 'https://adoptium.net' })).upstream, 'https://github.com/adoptium/jdk');
   assert.equal((await plan({ homepage: 'https://adoptium.net' })).upstream, 'https://adoptium.net');
   assert.equal((await plan({})).upstream, null);
-});
-
-test('a version with an open fix PR is retried; one whose fix PR was closed without merge is ignored', async () => {
-  const fixPrs = {
-    '27.0.0+35': { number: 7, state: 'open' },
-    '27.0.1+2': { number: 8, state: 'closed' },
-    '27.0.2+1': { number: 9, state: 'open' },
-  };
-  const tags = ['java-27.0.2-1-r1'];
-  const plan = await planTool(java({ '*': { from: '27.0.0' } }), { lookup: upstream(['27.0.0+35', '27.0.1+2', '27.0.2+1', '27.0.3+4']), tags, platformsOf: everyPlatform, now, fixPrs });
-  assert.deepEqual(decisions(plan), [
-    '27.0.0+35: publish (new, retried: fix PR #7)',
-    '27.0.1+2: skip (ignored: fix PR #8 closed without merge)',
-    '27.0.2+1: skip (published)',
-    '27.0.3+4: publish (new)',
-  ]);
-  assert.equal(plan.versions[0].fixPr, 7);
-  assert.equal(plan.versions[3].fixPr, undefined);
 });

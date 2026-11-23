@@ -5,16 +5,16 @@
 // default. With --push, pushes that tested layout as <tag>, never over an existing tag; with --reuse, its image index also
 // lists the other platforms of that published tool image, as they are (D62). Without --push (dry run), a published version the
 // tool definition no longer publishes is built too, from its catalog entry (lib/build.mjs).
-// With --failure, a build or test that fails is handed over to the fix PRs instead of failing (spec §5.3, step 5): its tool,
-// version, tag, failing step (build or test) and log excerpt are written to that file as JSON, and to the job summary
-// ($GITHUB_STEP_SUMMARY), and it exits successfully. A failed push still fails: it is no failure of the tool version.
+// With --failure, a build or test that fails is a tool failure, handed over to its failure issue instead of failing (spec §5.3,
+// step 5, ADR 0012): its tool, version, tag, failing step (build or test) and log excerpt are written to that file as JSON, and
+// to the job summary ($GITHUB_STEP_SUMMARY), and it exits successfully. A failed push still fails: it is a run failure.
 import { execFileSync, spawn } from 'node:child_process';
 import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { buildTarget } from './lib/build.mjs';
-import { failureSummary, logExcerpt } from './lib/fix-pr.mjs';
 import { pushOciLayout } from './lib/oci-layout.mjs';
+import { buildFailureSummary, logExcerpt } from './lib/reconcile-failures.mjs';
 import { Registry } from './lib/registry.mjs';
 import { readCatalog, readToolDefinition, ROOT } from './lib/repository.mjs';
 import { PLATFORMS } from './lib/tool-definition.mjs';
@@ -58,8 +58,8 @@ for (const [step, args] of [['build', ['--provenance=false', 'tool']], ['test', 
   const failure = { tool: target.tool, version: target.version, tag: target.tag, step, excerpt: logExcerpt(log) };
   await mkdir(dirname(values.failure), { recursive: true });
   await writeFile(values.failure, `${JSON.stringify(failure, null, 2)}\n`);
-  if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, failureSummary(failure));
-  console.log(`::warning title=${target.tool} ${target.version} failed::the ${step} step failed: handed over to its fix PR, see the job summary`);
+  if (process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, buildFailureSummary(failure));
+  console.log(`::warning title=${target.tool} ${target.version} failed::the ${step} step failed: handed over to its failure issue, see the job summary`);
   process.exit(0);
 }
 if (values.push) {

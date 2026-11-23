@@ -219,18 +219,6 @@ test('the release notes preview shows what the next release adds, replaces and r
   assert.deepEqual(fetched, ['maven-3.9.16-r1']);
 });
 
-test('the dry run and the release notes preview skip a version whose fix PR was closed without merge, as the reconciler does', async () => {
-  const result = await check({
-    tools: [java({ 21: { from: '21.0.12' } })],
-    changedFiles: ['tools/java/install.sh'],
-    fixPrs: { java: { '21.0.13+5': { number: 7, state: 'closed' }, '21.0.14+2': { number: 8, state: 'open' } } },
-    plan: { lookup: upstreamOf({ 'java-version': ['21.0.13+5', '21.0.14+2'] }), tags: tagsIn() },
-  });
-  assert.deepEqual(builds(result), ['java 21.0.14+2 java-21.0.14-2-r1 (planned: new, retried: fix PR #8)']);
-  assert.doesNotMatch(result.notes, /21\.0\.13\+5/);
-  assert.match(result.notes, /21\.0\.14\+2/);
-});
-
 test('a manual revision the PR sets must be above the highest published one, which the reconciler can have raised (D62)', async () => {
   // r2 added linux/arm64 to r1 without a revision in tool.json.
   const base = maven({ 3.9: { versions: ['3.9.16'] } });

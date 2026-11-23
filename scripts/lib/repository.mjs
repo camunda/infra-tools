@@ -7,9 +7,33 @@ import { parseToolDefinition } from './tool-definition.mjs';
 
 export const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
-// gh api with its arguments and input (the request body, '' for none), with gh's token (GH_TOKEN or GITHUB_TOKEN). Returns the
-// response body; an error status throws, with gh's message (e.g. "(HTTP 404)") in its stderr.
-export const ghApi = (input, ...args) => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' });
+// Waits before each retry of a transient GitHub API error (ADR 0012): a step fails only when its error persists.
+const GH_RETRY_DELAYS = [2000, 4000, 8000];
+// gh api errors worth retrying, from its stderr: a rate limit (secondary ones answer 403), a server or gateway error, a network
+// error.
+const GH_TRANSIENT = /\(HTTP (429|5\d\d)\)|rate limit|connection reset|connection refused|timeout|deadline exceeded|\bEOF\b/i;
+
+// Blocks for ms: gh api runs synchronously.
+const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+// Runs a gh api call, retrying it after each of delays while it fails with a transient error; any other error, or the last
+// one, throws. A retried write GitHub had applied (a 502 after the change) can be applied twice: failure issues tolerate a
+// duplicate comment or issue, and the other writes check what exists first.
+export function retryTransient(call, { delays = GH_RETRY_DELAYS, sleep = sleepSync } = {}) {
+  for (let retry = 0; ; retry++) {
+    try {
+      return call();
+    } catch (err) {
+      if (retry >= delays.length || !GH_TRANSIENT.test(err.stderr ?? '')) throw err;
+      console.log(`gh api: ${String(err.stderr).trim().split('\n').at(-1)}, retried in ${delays[retry] / 1000} s`);
+      sleep(delays[retry]);
+    }
+  }
+}
+
+// gh api with its arguments and input (the request body, '' for none), with gh's token (GH_TOKEN or GITHUB_TOKEN), transient
+// errors retried. Returns the response body; an error status throws, with gh's message (e.g. "(HTTP 404)") in its stderr.
+export const ghApi = (input, ...args) => retryTransient(() => execFileSync('gh', ['api', ...args], { input, encoding: 'utf8' }));
 
 // gh api on a path (e.g. repos/<owner>/<name>/releases), returning the parsed response (null when empty). method: GET by
 // default; body: the request body, sent as JSON; accept: the Accept header (e.g. application/vnd.github.raw+json for the
@@ -22,22 +46,6 @@ export function ghJson(path, { method = 'GET', body, accept } = {}) {
     if (method === 'GET' && /\(HTTP 404\)/.test(err.stderr)) return null;
     throw err;
   }
-}
-
-// Every pull request of a repository (owner/name) with a label, open or not: { number, state ('OPEN', 'CLOSED' or 'MERGED'),
-// body, labels (names), createdAt }, as lib/fix-pr.mjs takes the fix PRs. An API error throws: pull requests that cannot be
-// read must not read as none.
-export function readPullRequests(repository, label) {
-  const issues = JSON.parse(ghApi('', '--paginate', '--slurp', `repos/${repository}/issues?labels=${encodeURIComponent(label)}&state=all&per_page=100`)).flat();
-  return issues
-    .filter((issue) => issue.pull_request)
-    .map((pr) => ({
-      number: pr.number,
-      state: pr.state === 'open' ? 'OPEN' : pr.pull_request.merged_at ? 'MERGED' : 'CLOSED',
-      body: pr.body,
-      labels: pr.labels.map((l) => l.name),
-      createdAt: pr.created_at,
-    }));
 }
 
 export async function readToolDefinition(name) {
@@ -69,6 +77,19 @@ export async function readCatalog(name) {
 export async function writeCatalog(name, entries) {
   await mkdir(join(ROOT, 'published'), { recursive: true });
   await writeFile(join(ROOT, 'published', `${name}.json`), `${JSON.stringify(entries, null, 2)}\n`);
+}
+
+// The JSON files of a folder, by file name, such as the failures of a run: [] when the folder is missing (nothing failed).
+export async function readJsonFiles(dir) {
+  if (!dir) return [];
+  let files;
+  try {
+    files = (await readdir(dir)).filter((f) => f.endsWith('.json')).sort();
+  } catch (err) {
+    if (err.code === 'ENOENT') return [];
+    throw err;
+  }
+  return Promise.all(files.map(async (f) => JSON.parse(await readFile(join(dir, f), 'utf8'))));
 }
 
 async function readOptional(path) {

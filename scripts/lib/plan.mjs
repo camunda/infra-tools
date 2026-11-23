@@ -10,13 +10,12 @@ import { compareVersions, sortVersions, tagFor } from './versions.mjs';
 // (the highest published one plus one): it builds only the platforms added and reuses the others from the tool image it replaces
 // (reuse, its tag). A manual revision above the highest published one builds every platform again.
 // lookup: Renovate's getPkgReleases or a stand-in. tags: the published tags of the registry. platformsOf(tag): the platforms of a
-// published tool image (Registry.toolImagePlatforms). fixPrs: the fix PR tracking each version of the tool, by version ({ number,
-// state: 'open' or 'closed' without merge }, lib/fix-pr.mjs trackedVersions). An unpublished version with an open fix PR is
-// planned again, so the fix PR closes once it builds (its fixPr is set: it is tracked, never a gap); one whose fix PR was
-// closed without merge is ignored.
-export async function planTool(tool, { lookup = renovateLookup, tags, platformsOf, now = Date.now(), fixPrs = {} }) {
+// published tool image (Registry.toolImagePlatforms). retryDelays: the waits before each retry of a failed lookup. The plan
+// reads no GitHub state (ADR 0012): a version that fails is planned again on every run, until it builds or its line ignores
+// it (ignoredVersions).
+export async function planTool(tool, { lookup = renovateLookup, tags, platformsOf, now = Date.now(), retryDelays = LOOKUP_RETRY_DELAYS }) {
   const scheme = await versioningFor(tool.source);
-  const { upstream, link } = await upstreamVersions(tool, lookup);
+  const { upstream, link } = await upstreamVersions(tool, lookup, retryDelays);
   const pinned = Object.values(tool.publish.lines).flatMap((line) => [...(line.versions ?? []), ...Object.keys(line.revisions ?? {})]);
   const notFound = pinned.filter((version) => !upstream.has(version));
   if (notFound.length) throw new Error(`${tool.name}: not found upstream: ${sortVersions(notFound).join(', ')}`);
@@ -39,13 +38,10 @@ export async function planTool(tool, { lookup = renovateLookup, tags, platformsO
     const missing = PLATFORMS.filter((p) => !available.includes(p));
     const waiting = missing.length ? { missing, released: Number.isNaN(released) ? null : new Date(released).toISOString() } : {};
     const target = await nextTarget(tool, version, available, { tags, platformsOf });
-    const fixPr = fixPrs[version];
     if (target.published) versions.push({ version, decision: 'skip', reason: 'published', line: line.key, ...target.published, ...waiting });
-    else if (fixPr?.state === 'closed') versions.push({ version, decision: 'skip', reason: `ignored: fix PR #${fixPr.number} closed without merge` });
     else {
       if (target.reuse) reason = `adds ${target.platforms.join(', ')} to ${target.reuse}`;
-      if (fixPr) reason = `${reason}, retried: fix PR #${fixPr.number}`;
-      versions.push({ version, decision, reason, line: line.key, ...target, ...waiting, ...(fixPr && { fixPr: fixPr.number }) });
+      versions.push({ version, decision, reason, line: line.key, ...target, ...waiting });
     }
   }
   return { tool: tool.name, versions, upstream: link };
@@ -73,20 +69,37 @@ export function highestRevision(tags, tool, version) {
   return Math.max(0, ...revisions);
 }
 
+// Waits before each retry of a failed upstream lookup (ADR 0012): the plan fails only when the lookup keeps failing.
+const LOOKUP_RETRY_DELAYS = [2000, 4000, 8000];
+
+// A lookup's result, retried after each of delays while it throws or finds no versions, which an outage gives (Renovate's
+// getPkgReleases returns null when a lookup fails); the last error throws.
+async function lookupRetrying(lookup, config, delays, describe) {
+  for (let retry = 0; ; retry++) {
+    let error;
+    try {
+      const result = await lookup(config);
+      if (result?.releases?.length) return result;
+      error = new Error(`${describe} (lookup failed or empty)`);
+    } catch (err) {
+      error = err;
+    }
+    if (retry >= delays.length) throw error;
+    console.log(`${error.message}, retried in ${delays[retry] / 1000} s`);
+    await new Promise((resolve) => setTimeout(resolve, delays[retry]));
+  }
+}
+
 // Upstream versions by exact version string, with the platforms they exist for, and the upstream project link. `{arch}` in the package name makes one lookup per
 // platform (with the tool cache arch folder); otherwise one lookup covers every platform.
-async function upstreamVersions(tool, lookup) {
+async function upstreamVersions(tool, lookup, retryDelays) {
   const { packageName } = tool.source;
   const lookups = packageName.includes('{arch}')
     ? PLATFORMS.map((platform) => [[platform], packageName.replaceAll('{arch}', archFolder(tool, platform))])
     : [[PLATFORMS, packageName]];
   const results = await Promise.all(
-    lookups.map(async ([, name]) => {
-      const result = await lookup({ ...tool.source, packageName: name });
-      // An outage must fail the run, never read as "no versions".
-      if (!result?.releases?.length) throw new Error(`${tool.name}: no upstream versions from ${tool.source.datasource} ${name} (lookup failed or empty)`);
-      return result;
-    }),
+    // An outage must fail the run, never read as "no versions".
+    lookups.map(([, name]) => lookupRetrying(lookup, { ...tool.source, packageName: name }, retryDelays, `${tool.name}: no upstream versions from ${tool.source.datasource} ${name}`)),
   );
   const upstream = new Map();
   results.forEach((result, i) => {
