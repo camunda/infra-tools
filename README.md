@@ -30,13 +30,7 @@ A version that fails to build or test gets a fix PR (label `tool-build`), opened
 
 Record commits and action changes keep a release-please release PR open ([Release](.github/workflows/release.yml), config in `.github/config/`). Every day, the [Release merge](.github/workflows/release-merge.yml) workflow enables GitHub auto-merge on it as the Infra - Releases App (the repository setting "Allow auto-merge" must be on): GitHub merges it once its required checks pass. The merge creates release `X.Y.Z` as a draft, without its tag, which the Release workflow then publishes: the `X.Y.Z-tools` index pushed to `ghcr.io/camunda/infra-tools` (the previous release's index, plus the catalog, minus retired versions), the Added / Replaced / Retired tables added to the release notes, `tools.json` attached, and the draft published last, which creates tag `X.Y.Z`. The action installs from the index of the release it is pinned to; the action tests use the latest published release's.
 
-### Publish a tool version by hand
-
-Until the first release, the action tests read a test index filled by hand. The [Publish tool](.github/workflows/publish-tool.yml) workflow builds, tests and pushes the tool image of one version that its tool definition publishes and that the reconciler has not published yet, then adds it to an index (`ghcr.io/camunda/infra-tools:tracer-tools` by default):
-
-```sh
-gh workflow run publish-tool.yml -f tool=maven -f version=3.9.16
-```
+### Build a tool version locally
 
 Build and test a tool version locally, for both platforms (needs a Buildx builder with the `docker-container` driver):
 

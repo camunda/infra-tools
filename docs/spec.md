@@ -91,7 +91,7 @@ infra-tools/
 │   ├── builder.Dockerfile        # build-platform image where install.sh runs (download, install-tool)
 │   ├── tool.Dockerfile           # default tool build → FROM scratch tool image
 │   └── test.Dockerfile           # runs test.sh on the target platform
-├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index, pull-request, stuck-prs (+ lib/, test/)
+├── scripts/                      # Node.js: plan, build, publish, record, fix-pr, index, pull-request (+ lib/, test/)
 │   ├── package.json              # renovate (getPkgReleases)
 │   └── superseded.sh             # superseded-run guard of the reconciler
 ├── published/                    # bot-written record of published versions
@@ -100,7 +100,7 @@ infra-tools/
     ├── renovate.json5
     ├── renovate-preset.json5     # for consumers
     ├── config/                   # release-please-config.json, .release-please-manifest.json
-    └── workflows/                # reconcile.yml, ci.yml (pull request checks: tests of the scripts and the action), release.yml, release-merge.yml (Q15), publish-tool.yml (manual, fills the action tests' index until the first release), renovate-pr-maintainer.yml
+    └── workflows/                # reconcile.yml, ci.yml (pull request checks: tests of the scripts and the action), release.yml, release-merge.yml (Q15)
 ```
 
 ### 5.2 Tool definition and build
@@ -161,7 +161,7 @@ Lines (D41), per upstream version: find its line (the explicit line it belongs t
 
 ### 5.3 Reconciler
 
-Runs on a schedule, on push to `main` and on demand; one run at a time, in a concurrency group shared with every workflow that pushes tool images (`publish-tool.yml` until the first release): the tag of a tool image is checked, then written, so two runs must not push the same one.
+Runs on a schedule, on push to `main` and on demand; one run at a time: no other workflow pushes tool images, and the tag of a tool image is checked, then written, so two runs must not push the same one.
 
 A run whose tool definitions no longer match `main`'s tip publishes nothing: the run on the tip does. Each job (plan, every build, record) first compares the run's commit with the tip, `published/` aside, since record commits start no run; when they differ, the run is superseded (a rerun of an older run, or `main` changed during the run), and the job skips its steps, stays green and says so in its summary. A superseded plan plans no builds. Images a superseded run already pushed stay unrecorded until the run on the tip records them, when still within its lines and built with its `install` block (safeguards below).
 
@@ -193,7 +193,7 @@ Jobs of `ci.yml` on pull requests, read only: nothing is pushed or published.
 - Warn when a published version's build files changed without a revision bump: its tool image files, not its tests (`test.sh`, `build/test.Dockerfile`), and `tool.json` only when its `install` block changed.
 - Fail when a `revisions` value the PR adds or changes is not above the highest published revision of its version (D62), from the registry's tag list: it would build nothing, since the reconciler can have raised the revision itself.
 - Comment the release notes the next release would produce: the latest release's index + the catalog + the planned versions − retired versions, compared with the latest release's index. One comment per PR, updated on each push, and updated to say so when a later push no longer changes tools; fork PRs get it in the job summary only.
-- The latest release, for the comment and the action tests, is the latest published one: the highest `X.Y.Z-tools` index up to the release-please manifest version at the base. A merged release PR bumps the manifest before its index is pushed (D60), so until then the checks use the release before it instead of failing.
+- The latest release, for the comment and the action tests, is the latest published one: GitHub's latest release (`GET /releases/latest`), whose `X.Y.Z-tools` index they read (ADR 0013). A draft is never the latest release, so an index pushed before its release is published is never used; no published release, or a latest release that is not `X.Y.Z`, fails the checks.
 
 Script: `pull-request.mjs` (plan, warnings and comment; the build jobs run `build.mjs`).
 
@@ -242,7 +242,7 @@ Releases (release-please, D25):
 | --- | --- | --- |
 | Tool versions | `tools/*/tool.json` | Not Renovate: the reconciler (D21). |
 | Repository dependencies | `scripts/package.json` (renovate), actions, base images | Default Renovate config. |
-| Renovate PRs | This repository | `renovate-pr-maintainer.yml`: hourly `renovate-pr-maintainer` action (one-off rebase of stale PRs, as Renovate only rebases on conflicts); weekly digest to `#infra-alerts` of PRs dirty or awaiting rebase for 48h or more (`scripts/stuck-prs.mjs`). |
+| Renovate PRs | This repository | Rebased on conflicts only; adding the `rebase` label to a PR rebases it once (`.github/renovate.json5`). |
 | Action pins | Consumer workflows | Renovate's built-in github-actions manager (`@<sha> # X.Y.Z`, D30). |
 | Selectors | Consumer `tools: \|` and `tool-cache: \|` blocks | Preset `github>camunda/infra-tools//.github/renovate-preset.json5`: custom datasource reading `published/<tool>.json` at the pinned tag through the contents API (D29); npm versioning keeps each selector's precision; exact build pins are left alone. |
 
@@ -257,7 +257,7 @@ Workflows follow the infra team's reference repository, [`camunda/infra-services
 - Checkouts that don't push use `persist-credentials: false`. No harden-runner.
 - Secrets come from Vault with JWT (`hashicorp/vault-action`); GitHub App tokens are minted from Vault-stored credentials.
 - Each workflow exposes one always-run aggregate job (e.g. "Check CI", "Check Lint") as its required check, failing when a needed job failed or was cancelled.
-- Scheduled and release workflows retry transient failures with `rerun-failed-run`; failure guidance goes into `$GITHUB_STEP_SUMMARY`. After the last attempt, `renovate-pr-maintainer.yml` alerts `#infra-alerts` from a `notify` job (Vault `SLACK_WEBHOOK_INFRA_ALERTS`) that pings `@infra-medic` with the run link; the reconciler and release workflows are not wired to Slack yet (D54): a failure fails the run and its aggregate check.
+- Scheduled and release workflows retry transient failures with `rerun-failed-run`; failure guidance goes into `$GITHUB_STEP_SUMMARY`. The reconciler and release workflows are not wired to Slack yet (D54): a failure fails the run and its aggregate check.
 - Concurrency only where runs can conflict: `cancel-in-progress: true` for PR validation, `false` for the reconciler and releases.
 - Light jobs run on `ubuntu-latest`; self-hosted runner labels used in workflows are declared in the actionlint config.
 - Lint through pre-commit, locally and in CI: pre-commit-hooks, actionlint, zizmor, shellcheck, conventional commits, mdformat, renovate-config-validator, yamlfmt and yamllint; PR titles are validated with `teams/infra/pull-request/validate-title`.
@@ -346,7 +346,7 @@ Workflows follow the infra team's reference repository, [`camunda/infra-services
 | D61 | The release copies each release index, with its manifests and layers, to the Artifact Registry mirror of the GKE runners, logged in with GitHub OIDC; the mirror is a standard repository, and no PAT is stored. The copy runs in its own job, one matrix entry per mirror, after publication: a failing mirror never blocks a release, and the next run copies what it missed. | Artifact Registry remote repository with the `infra-connect` PAT (D48); a scheduled copy job in the reconciler | A remote repository cannot be scoped to one package (Artifact Registry rejects a path in the upstream URI), so every runner, fork PRs included, could pull any package the PAT reads; copying only the release indexes gives the mirror nothing else to serve and needs no stored credential. | decided; copied before publication by D65 |
 | D62 | Publish a version as soon as one platform has it, as revision 1 with those platforms; when a missing platform appears upstream, publish the next revision, building only that platform and reusing the existing platforms' manifests and layers (ADR 0011). The reconciler derives the revision from the registry (highest published plus one, or the manual `revisions` value when higher) and never commits it; a manual value not above the published one fails the PR check. A platform missing after 7 days is a warning in the reconciler's job summary, counted as tracked by R17. `minAge` applies once per version. Replaces D28. | Wait for every platform, fix PR after N days (D28); commit the revision bump to `tool.json` | One missing platform no longer blocks the others, and consumers on existing platforms keep their digest (R7); no bot commit races with human edits. | decided |
 | D63 | Every reconciler and release failure is tracked in a failure issue that follows its state (closed when gone, reopened while it lasts), with its procedure from `docs/runbooks/` and the commands an agent may run: one per tool and major for tool failures (label `tool-failure`), one per flow and step for run failures (`run-failure`), one Slack line in `#infra-alerts` when one opens or reopens (ADR 0012). The plan reads no GitHub state; a version is ignored through `ignoredVersions`. Tool failures leave the run green; transient errors are retried call by call inside the scripts. `release-merge.yml` failures alert `#infra-alerts` directly. | Fix PRs (D21); one issue per version; Slack alerts only | Same inputs give the same plan; the issue carries the procedure and closes itself; an ordinary PR proves a fix. | decided; not implemented yet |
-| D64 | A release is published by one job, as steps that check their own end state: draft, index, mirrors, notes and `tools.json`, then the draft published; release-please opens the next release PR only once no draft is left (ADR 0013). Every draft update sends its `tag_name` and `target_commitish`, `tools.json` is uploaded by release id, the publishing token has `workflows: write`, and a draft without an `X.Y.Z` tag name, or a second draft, fails the run. A release that fails for good is fixed on `main` and its draft retargeted. The action tests read the latest published release. | Several drafts published oldest first (D60); roll back the manifest; build the release from `main`'s tip | At most one draft and a changelog always computed from an existing tag; release 1.1.0 was stuck three days as a skipped draft. | decided; draft updates, upload by id and `workflows: write` done (#69, #70) |
+| D64 | A release is published by one job, as steps that check their own end state: draft, index, mirrors, notes and `tools.json`, then the draft published; release-please opens the next release PR only once no draft is left (ADR 0013). Every draft update sends its `tag_name` and `target_commitish`, `tools.json` is uploaded by release id, the publishing token has `workflows: write`, and a draft without an `X.Y.Z` tag name, or a second draft, fails the run. A release that fails for good is fixed on `main` and its draft retargeted. The action tests read the latest published release. | Several drafts published oldest first (D60); roll back the manifest; build the release from `main`'s tip | At most one draft and a changelog always computed from an existing tag; release 1.1.0 was stuck three days as a skipped draft. | decided; draft updates, upload by id and `workflows: write` done (#69, #70), action tests on the latest published release done (#73) |
 | D65 | Every mirror, ECR included, is a standard repository the release fills before it is published, digests checked (ADR 0007). | Copy after publication (D61); ECR by pull-through (D48) | A tag `X.Y.Z` means its index is on every registry; a daily release can wait for a mirror. | decided; not implemented yet |
 
 ## 8. Open questions

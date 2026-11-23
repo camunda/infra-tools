@@ -15,14 +15,12 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # The index the action tests install from: the latest published release's, up to the version of the manifest at the base, as
-  # a release PR already holds the next version, and a merged one until its index is pushed (D60). Before the first release,
-  # the test index the Publish tool workflow fills.
+  # The index the action tests install from: the latest published release's (ADR 0013), never a draft's, whose index can be
+  # pushed before it is published.
   index:
     name: Find the latest release
     permissions:
-      contents: read # read the release-please manifest at the base
-      packages: read # list the index tags
+      contents: read # read the latest release
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -43,11 +41,9 @@ jobs:
       id: index
       env:
         GH_TOKEN: ${{ github.token }}
-        GITHUB_TOKEN: ${{ github.token }}
         REPOSITORY: ${{ github.repository }}
-        BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
       run: |
-        index="$(node scripts/index.mjs latest-index --image ghcr.io/camunda/infra-tools --repository "${REPOSITORY}" --ref "${BASE}")"
+        index="$(node scripts/index.mjs latest-index --image ghcr.io/camunda/infra-tools --repository "${REPOSITORY}")"
         echo "index=${index}" >>"${GITHUB_OUTPUT}"
 
   test:
