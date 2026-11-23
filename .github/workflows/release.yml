@@ -6,10 +6,10 @@ name: Release
 # its tag, once GitHub auto-merged its release PR (release-merge.yml; config in .github/config/); release.mjs then pushes its
 # X.Y.Z-tools index to ghcr.io, copies it to every mirror (D65), adds the Added / Replaced / Retired tables to its notes,
 # attaches tools.json and publishes the draft last, which creates its tag; and release-please opens or updates the next release
-# PR only once every step passed, so there is at most one draft and the PR's changelog starts at an existing tag. A failed step
-# is a run failure tracked in its failure issue (ADR 0012, D63), which alerts #infra-alerts when it opens or reopens. Transient
-# registry and GitHub API errors are retried inside the scripts, call by call. A manual run follows a fix that needs no push
-# (a retargeted draft, a mirror back up).
+# PR only once every step passed, so there is at most one draft and the PR's changelog starts at an existing tag. A failed step,
+# or a failed step of the job outside them (setup), is a run failure tracked in its failure issue (ADR 0012, D63), which alerts
+# #infra-alerts when it opens or reopens. Transient registry and GitHub API errors are retried inside the scripts, call by call.
+# A manual run follows a fix that needs no push (a retargeted draft, a mirror back up).
 on:
   push:
     branches:
@@ -40,6 +40,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+    # First: the failure issues step needs the scripts and runbooks, whichever later step fails.
+    - name: Checkout
+      id: checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
     - name: Import Secrets
       id: vault-secrets
       uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
@@ -70,6 +77,7 @@ jobs:
 
     # Called directly, not through the shared release action, which exposes neither skip input (ADR 0013).
     - name: Create the draft release
+      id: draft
       uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
       with:
         token: ${{ steps.app-token.outputs.token }}
@@ -77,19 +85,16 @@ jobs:
         manifest-file: .github/config/.release-please-manifest.json
         skip-github-pull-request: true
 
-    - name: Checkout
-      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      with:
-        persist-credentials: false
-
     # No dependency cache in a job that publishes: a poisoned cache would reach the release (zizmor cache-poisoning).
     - name: Set up Node.js
+      id: node
       uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version-file: .tool-versions
         package-manager-cache: false
 
     - name: Install dependencies
+      id: dependencies
       run: npm ci --prefix scripts
 
     # One login step per mirror. infra-tools-mirror-sa can only write the GKE mirror (camunda/infra-core). A failed login fails
@@ -120,6 +125,7 @@ jobs:
 
     # Only once every step passed: no draft is left, so the changelog starts at the latest release's tag.
     - name: Open or update the release PR
+      id: release-pr
       uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
       with:
         token: ${{ steps.app-token.outputs.token }}
@@ -127,27 +133,44 @@ jobs:
         manifest-file: .github/config/.release-please-manifest.json
         skip-github-release: true
 
-    # Also after a failed step, whose failures it tracks; the release step writes nothing when it did not run.
+    # A failed step outside the release steps is the setup run failure (ADR 0012): its report names the failed steps, whose
+    # logs are in the job log. A failure of the release step alone is reported by release.mjs.
+    - name: Report a failure outside the release steps
+      if: failure() && steps.checkout.outcome == 'success'
+      env:
+        SECRETS: ${{ steps.vault-secrets.outcome }}
+        TOKEN: ${{ steps.app-token.outcome }}
+        DRAFT: ${{ steps.draft.outcome }}
+        NODE: ${{ steps.node.outcome }}
+        DEPENDENCIES: ${{ steps.dependencies.outcome }}
+        RELEASE_PR: ${{ steps.release-pr.outcome }}
+      run: |
+        declare -A names=([SECRETS]="Import Secrets" [TOKEN]="Generate a GitHub token" [DRAFT]="Create the draft release"
+          [NODE]="Set up Node.js" [DEPENDENCIES]="Install dependencies" [RELEASE_PR]="Open or update the release PR")
+        failed=()
+        for var in SECRETS TOKEN DRAFT NODE DEPENDENCIES RELEASE_PR; do
+          if [[ "${!var}" == failure ]]; then failed+=("${names[${var}]}"); fi
+        done
+        if [[ ${#failed[@]} -eq 0 ]]; then exit 0; fi
+        mkdir -p "${OUT}"
+        list="$(printf '%s, ' "${failed[@]}")"
+        echo "Failed steps: ${list%, }. See their logs in the job log of the run." >"${OUT}/setup.log"
+        node scripts/run-failure.mjs release setup --log "${OUT}/setup.log" --out "${OUT}/reports/release-setup.json"
+
+    # Also after a failed step, whose failures it tracks; the release step writes nothing when it did not run. The setup failure
+    # issue closes once a run reaches the release step without a setup failure.
     - name: Open, update and close the failure issues
-      if: ${{ !cancelled() }}
+      if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
       env:
         GH_TOKEN: ${{ github.token }}
         SLACK_WEBHOOK_INFRA_ALERTS: ${{ steps.vault-secrets.outputs.SLACK_WEBHOOK_INFRA_ALERTS }}
         REPOSITORY: ${{ github.repository }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        RELEASE: ${{ steps.release.outcome }}
       run: |
         resolve=()
         if [[ -f "${OUT}/resolve.txt" ]]; then
           while read -r scope; do resolve+=(--resolve "${scope}"); done <"${OUT}/resolve.txt"
         fi
+        if [[ "${RELEASE}" != skipped && ! -f "${OUT}/reports/release-setup.json" ]]; then resolve+=(--resolve release/setup); fi
         node scripts/failure-issues.mjs --repository "${REPOSITORY}" --run-url "${RUN_URL}" --failures "${OUT}/reports" "${resolve[@]}"
-
-    - name: Report failure
-      if: failure() && steps.release.outcome != 'failure'
-      run: |
-        {
-          echo "## Release failed"
-          echo
-          echo "A step outside the release steps failed (secrets, token, release-please, setup or failure issues): it has no failure issue."
-          echo "Inspect the failed step in the job log, then run the workflow again: \`gh workflow run release.yml -R camunda/infra-tools\`."
-        } >>"${GITHUB_STEP_SUMMARY}"

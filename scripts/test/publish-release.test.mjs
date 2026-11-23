@@ -198,3 +198,10 @@ test('a mirror whose login failed fails its own step without any request; the ot
   assert.deepEqual(outcome.failures.map((f) => [f.key.step, f.errors]), [['mirror.ecr', { 'mirror.ecr': 'MIRROR_TOKEN_ECR is not set: the login step of mirror ecr failed, see its log' }]]);
   assert.equal(await mirrors[0].registry.digest('0.1.0-tools'), await registry.digest('0.1.0-tools'));
 });
+
+test('a failure outside the release steps is reported as the setup step, with the failed steps, for no release', () => {
+  const report = releaseFailureReport({ step: 'setup', error: 'Failed steps: Generate a GitHub token. See the job log of the run.' });
+  assert.deepEqual(report.key, { flow: 'release', step: 'setup' });
+  assert.deepEqual(report.errors, { setup: 'Failed steps: Generate a GitHub token. See the job log of the run.' });
+  assert.match(report.context, /outside the release steps/);
+});
