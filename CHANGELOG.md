@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.2.0](https://github.com/camunda/infra-tools/compare/1.1.0...1.2.0) (2026-11-23)
+
+
+### Features
+
+* **java:** publish 21.0.13+100000002.0.LTS for amd64 ([e6b1546](https://github.com/camunda/infra-tools/commit/e6b154659fb17a442524f8c45f6a1ff30ed9938d))
+* **java:** publish 21.0.13+100000002.0.LTS for arm64 (r2) ([cf8a3eb](https://github.com/camunda/infra-tools/commit/cf8a3eb75fbb10dfc014ea79a30ee5a7daf37059))
+* publish each platform when available, adding late platforms as a new revision ([ea06d41](https://github.com/camunda/infra-tools/commit/ea06d4113374f3aae0752c66a179a929321b4453)), closes [#48](https://github.com/camunda/infra-tools/issues/48)
+
 ## [1.1.0](https://github.com/camunda/infra-tools/compare/1.0.0...1.1.0) (2026-11-20)
 
 
