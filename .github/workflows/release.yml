@@ -9,7 +9,7 @@ name: Release
 # PR only once every step passed, so there is at most one draft and the PR's changelog starts at an existing tag. A failed step
 # is a run failure tracked in its failure issue (ADR 0012, D63), which alerts #infra-alerts when it opens or reopens. Transient
 # registry and GitHub API errors are retried inside the scripts, call by call. A manual run follows a fix that needs no push
-# (a retargeted draft, a deleted mirror tag).
+# (a retargeted draft, a mirror back up).
 on:
   push:
     branches:

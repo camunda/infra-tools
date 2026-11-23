@@ -151,22 +151,21 @@ test('a second draft is a run failure: nothing is pushed or changed, and no step
   assert.equal(ghcr.manifest('0.1.0-tools'), undefined);
 });
 
-test('a mirror whose tag points to other content fails the release; the other mirrors still get the index', async () => {
-  const other = new FakeRegistry({ name: 'other/camunda/infra-tools' });
-  await other.start();
-  try {
-    other.addIndex('0.1.0-tools', []);
-    const github = fakeGitHub([draft]);
-    const both = [{ name: 'other', registry: new Registry(other.repository, { token: TOKEN, scheme: 'http' }) }, ...mirrors];
-    const outcome = await publishRelease({ registry, mirrors: both, repository: REPOSITORY, github });
-    assert.deepEqual(outcome.resolve, ['release/drafts', 'release/index', 'release/mirror.gar']);
-    assert.deepEqual(outcome.failures.map((f) => f.key), [{ flow: 'release', step: 'mirror.other', release: '0.1.0' }]);
-    assert.match(outcome.failures[0].errors['mirror.other'], /0\.1\.0-tools is sha256:\w+, not sha256:\w+ as on .*: delete the mirror's tag/);
-    assert.equal(await mirrors[0].registry.digest('0.1.0-tools'), await registry.digest('0.1.0-tools'));
-    assert.deepEqual(github.calls, []);
-  } finally {
-    await other.stop();
-  }
+test('a retargeted draft whose index changed is published: its index replaces the earlier one on ghcr.io and on every mirror', async () => {
+  const github = fakeGitHub([draft], { fail: 'notes' });
+  await run(github);
+  const earlier = await registry.digest('0.1.0-tools');
+  // Retargeted to a commit whose catalog adds a version.
+  ghcr.addToolImage('maven-3.9.17-r1', { 'linux/amd64': Buffer.from('maven 3.9.17 amd64'), 'linux/arm64': Buffer.from('maven 3.9.17 arm64') });
+  const catalog = [...FILES['published/maven.json'], catalogEntry(parseToolDefinition('maven', mavenDefinition), '3.9.17', 1, '3.9')];
+  const file = github.file;
+  github.file = async (path, ref) => (path === 'published/maven.json' ? catalog : file(path, ref));
+  github.fail = undefined;
+  assert.deepEqual(await run(github), { release: '0.1.0', failures: [], resolve: STEPS });
+  const digest = await registry.digest('0.1.0-tools');
+  assert.notEqual(digest, earlier);
+  assert.equal(await mirrors[0].registry.digest('0.1.0-tools'), digest);
+  assert.equal(github.releases.find((r) => r.id === 7).draft, false);
 });
 
 test('a step that did not finish is reported without its error', () => {

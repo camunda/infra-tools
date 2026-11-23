@@ -15,7 +15,7 @@ The index is built from the tool definitions and the catalog at the draft's targ
 2. Find the draft's id and target: `gh api repos/camunda/infra-tools/releases --paginate --jq '.[] | select(.draft) | "\(.id) \(.tag_name) \(.target_commitish)"'`.
 3. For an outage, wait for it to end and go to step 6.
 4. Fix the cause on `main` in a pull request (a revision bump, a retired version, a tool definition fix), and wait for the reconciler to record what it publishes.
-5. Retarget the draft to the commit of `main` that holds the fix, keeping its tag name: `gh api -X PATCH repos/camunda/infra-tools/releases/<id> -f tag_name=<release> -f target_commitish=<sha>`. A retargeted release whose index changed fails on each mirror that already holds its earlier index: delete those mirror tags too (`docs/runbooks/release/mirror.md`).
+5. Retarget the draft to the commit of `main` that holds the fix, keeping its tag name: `gh api -X PATCH repos/camunda/infra-tools/releases/<id> -f tag_name=<release> -f target_commitish=<sha>`. The next run pushes the new index to `ghcr.io` and replaces the earlier one on every mirror.
 6. Start a run: `gh workflow run release.yml -R camunda/infra-tools`.
 
 ## Verify
