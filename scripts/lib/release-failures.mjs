@@ -7,6 +7,10 @@ const STAYS_A_DRAFT = (v) => `Release ${v} stays a draft, without its tag, and r
 // The context and observed state of each release step's run failure, for release <v>; its runbook is
 // docs/runbooks/release/<step>.md.
 const RELEASE_STEPS = {
+  setup: {
+    context: () => 'A step of the release job outside the release steps failed: the secrets from Vault, the infra-releases App token, release-please (the draft or the release PR), or the Node.js setup.',
+    state: () => 'Whatever the release steps did is kept; a draft stays a draft, and the release PR is not updated, until a run passes.',
+  },
   drafts: {
     context: () => 'The release could not list the releases, or found a second draft release, or a draft whose tag name is not `X.Y.Z`: it publishes one draft at a time, and publishing a draft creates the tag it is named after.',
     state: () => 'No draft is published, and release-please opens no release PR, until one draft `X.Y.Z` is left.',
@@ -32,8 +36,8 @@ const RELEASE_STEPS = {
 // Lines of an error kept in a run failure report: its cause is at the end.
 const ERROR_LINES = 50;
 
-// The report of a release step that failed (drafts, index, mirror.<name>, notes or undraft) for release (none for drafts),
-// with its error. Without an error, the step did not finish: its timeout.
+// The report of a release step that failed (drafts, index, mirror.<name>, notes or undraft) for release (none for drafts and
+// setup, a step of the job outside them), with its error. Without an error, the step did not finish: its timeout.
 export function releaseFailureReport({ step, release, error }) {
   const { context, state } = RELEASE_STEPS[step.split('.')[0]];
   const excerpt = error?.trim() ? error.trimEnd().split('\n').slice(-ERROR_LINES).join('\n') : `No log: the ${step} step did not finish (its timeout); see the run's job log.`;
