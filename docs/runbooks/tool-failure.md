@@ -19,7 +19,7 @@
 
 ## Verify
 
-The next reconciler run after the merge (`gh workflow run reconcile.yml -R camunda/infra-tools`, or the push to `main`) publishes each version (`published/<tool>.json`, a tool release `<tool>-<version>-r<revision>`) or no longer plans it, and closes this issue with a comment. Closing it by hand changes nothing: a run reopens it while a version still fails.
+The next reconciler run after the merge (`gh workflow run reconcile.yml -R camunda/infra-tools`, or the push to `main`) publishes each version (`published/<tool>.json`, a tool release `<tool>-<version>-r<revision>`) or no longer plans it, and closes this issue with a comment. Closing it by hand changes nothing: a run reopens it while a version still fails. A tool removed from `tools/`, or a major no line holds any more, is checked by no run: close its issue by hand.
 
 ## Agents
 
