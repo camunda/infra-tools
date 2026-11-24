@@ -1,0 +1,30 @@
+[
+  {
+    "version": "594.0.0",
+    "line": "*",
+    "folderVersion": "594.0.0",
+    "revision": 1,
+    "tag": "gcloud-594.0.0-r1",
+    "cacheFolder": "gcloud",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-11-24T14:51:43.266Z"
+  },
+  {
+    "version": "594.0.1",
+    "line": "*",
+    "folderVersion": "594.0.1",
+    "revision": 1,
+    "tag": "gcloud-594.0.1-r1",
+    "cacheFolder": "gcloud",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": null,
+    "publishedAt": "2026-11-24T14:51:43.266Z"
+  }
+]
