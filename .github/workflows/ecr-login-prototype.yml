@@ -64,7 +64,8 @@ jobs:
         # The mirror is empty until a release fills it, and the read policy has no ecr:ListImages (tags/list): a missing
         # manifest answers 404 where the policy lets the runner read (BatchGetImage), 403 elsewhere.
         for repository in camunda/infra-tools dockerhub/library/docker; do
-          status="$(curl -sS -o /dev/null -w '%{http_code}' -m 30 -I -H "Authorization: Basic ${authorization}" \
+          # GET, for the error code: MANIFEST_UNKNOWN means the repository exists, NAME_UNKNOWN that it does not.
+          body="$(curl -sS -m 30 -w '\nHTTP %{http_code}' -H "Authorization: Basic ${authorization}" \
             -H "Accept: application/vnd.oci.image.index.v1+json" "https://${REGISTRY}/v2/${repository}/manifests/0.0.0-tools")"
-          echo "manifest ${repository}:0.0.0-tools: HTTP ${status}"
+          echo "manifest ${repository}:0.0.0-tools: $(tail -1 <<<"${body}") $(head -1 <<<"${body}" | jq -c '[.errors[]?.code]' 2>/dev/null)"
         done
