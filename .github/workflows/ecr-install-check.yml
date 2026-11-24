@@ -1,0 +1,48 @@
+---
+name: ECR install check
+
+# Throwaway (#16): the action on EKS runners, with the mirror the EKS runner sets are about to get (camunda/infra-core#15433),
+# installs from ECR; with an unreachable mirror, it falls back to ghcr.io with a warning. The pull request is closed without
+# merging.
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  install:
+    name: Install (${{ matrix.runner }}, ${{ matrix.mirror }})
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      contents: read
+      packages: read # ghcr.io, for the fallback
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [aws-core-2-default, aws-arm-core-2-default]
+        mirror: [463214588456.dkr.ecr.eu-central-1.amazonaws.com, unreachable.invalid]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    env:
+      INFRA_TOOLS_MIRROR: ${{ matrix.mirror }}
+    steps:
+    - name: Checkout
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      with:
+        persist-credentials: false
+
+    - name: Install maven and java
+      id: install
+      uses: ./
+      with:
+        tools: maven@3
+        tool-cache: java@21
+        summary: true
+
+    - name: Check the versions
+      env:
+        VERSIONS: ${{ steps.install.outputs.versions }}
+      run: |
+        jq . <<<"${VERSIONS}"
+        mvn --version | head -1
