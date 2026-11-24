@@ -1,4 +1,5 @@
-// Minimal OCI distribution client: token exchange as on ghcr.io (any user name) or Artifact Registry (oauth2accesstoken).
+// Minimal OCI distribution client: token exchange as on ghcr.io (any user name) or Artifact Registry (oauth2accesstoken), or Basic
+// auth on every request as on ECR (AWS, with the password of GetAuthorizationToken).
 import { manifestBytes, MEDIA_TYPES, sha256 } from './oci.mjs';
 
 const ACCEPT = [
@@ -45,6 +46,7 @@ export class Registry {
     this.token = token;
     this.user = user;
     this.bearer = {};
+    this.basic = null; // Authorization header of a registry that asked for Basic auth
     this.retryDelays = retryDelays;
   }
 
@@ -54,9 +56,9 @@ export class Registry {
     const scope = push ? 'pull,push' : 'pull';
     const url = /^https?:\/\//.test(path) ? path : `${this.base}${path}`;
     for (;;) {
-      const auth = this.bearer[scope] ? { Authorization: `Bearer ${this.bearer[scope]}` } : {};
-      const res = await fetchRetrying(url, { method, headers: { ...headers, ...auth }, body }, this.retryDelays);
-      if (res.status === 401 && !this.bearer[scope]) {
+      const authorization = this.authorization(scope);
+      const res = await fetchRetrying(url, { method, headers: { ...headers, ...(authorization && { Authorization: authorization }) }, body }, this.retryDelays);
+      if (res.status === 401 && !authorization) {
         await this.login(res.headers.get('www-authenticate'), scope);
         continue;
       }
@@ -65,7 +67,17 @@ export class Registry {
     }
   }
 
+  // The Authorization header for scope once logged in, else undefined.
+  authorization(scope) {
+    return this.basic ?? (this.bearer[scope] && `Bearer ${this.bearer[scope]}`);
+  }
+
   async login(challenge, scope) {
+    if (/^Basic\b/i.test(challenge ?? '')) {
+      if (!this.token) throw new Error(`${this.host}: Basic auth asked, without a token`);
+      this.basic = `Basic ${Buffer.from(`${this.user}:${this.token}`).toString('base64')}`;
+      return;
+    }
     const params = Object.fromEntries([...(challenge ?? '').matchAll(/(\w+)="([^"]*)"/g)].map((m) => [m[1], m[2]]));
     if (!params.realm) throw new Error(`${this.host}: unsupported auth challenge: ${challenge}`);
     const url = new URL(params.realm);
