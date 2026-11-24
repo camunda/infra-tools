@@ -9,7 +9,7 @@
     "lines": {
       "*": {
         "from": "594.0.0",
-        "reason": "camunda/camunda gcs-build-cache-auth and infra-core workflows: setup-gcloud version latest; one line, as gcloud's major changes every week"
+        "reason": "one line: gcloud's major changes every week"
       }
     }
   },
