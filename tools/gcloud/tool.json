@@ -1,0 +1,20 @@
+{
+  "source": {
+    "datasource": "docker",
+    "packageName": "google/cloud-sdk",
+    "versioning": "semver",
+    "extractVersion": "^(?<version>\\d+\\.\\d+\\.\\d+)$"
+  },
+  "publish": {
+    "lines": {
+      "*": {
+        "from": "594.0.0",
+        "reason": "camunda/camunda gcs-build-cache-auth and infra-core workflows: setup-gcloud version latest; one line, as gcloud's major changes every week"
+      }
+    }
+  },
+  "setup": {
+    "action": "google-github-actions/setup-gcloud",
+    "versionInput": "version"
+  }
+}
