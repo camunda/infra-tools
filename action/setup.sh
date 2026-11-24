@@ -113,12 +113,32 @@ index_failed() {
   return 1
 }
 
+# An ECR authorization token (base64 of AWS:<password>) for the region's registries, from the runner's IRSA role: STS takes the
+# web identity token unsigned, and its temporary credentials sign GetAuthorizationToken (SigV4).
+ecr_token() {
+  local region="$1" scheme="${INFRA_TOOLS_REGISTRY_SCHEME:-https}" credentials key_id secret session
+  [[ -n "${AWS_ROLE_ARN:-}" && -r "${AWS_WEB_IDENTITY_TOKEN_FILE:-}" ]] || return 1
+  credentials="$(curl -fsS --retry 3 --connect-timeout 10 -m 30 -H "Accept: application/json" "${scheme}://sts.${region}.amazonaws.com/" \
+    --data-urlencode Action=AssumeRoleWithWebIdentity --data-urlencode Version=2011-06-15 \
+    --data-urlencode "RoleArn=${AWS_ROLE_ARN}" --data-urlencode RoleSessionName=infra-tools \
+    --data-urlencode "WebIdentityToken@${AWS_WEB_IDENTITY_TOKEN_FILE}" \
+    | jq -er .AssumeRoleWithWebIdentityResponse.AssumeRoleWithWebIdentityResult.Credentials)" || return 1
+  key_id="$(jq -er .AccessKeyId <<<"${credentials}")" || return 1
+  secret="$(jq -er .SecretAccessKey <<<"${credentials}")" || return 1
+  session="$(jq -er .SessionToken <<<"${credentials}")" || return 1
+  curl -fsS --retry 3 --connect-timeout 10 -m 30 --aws-sigv4 "aws:amz:${region}:ecr" --user "${key_id}:${secret}" \
+    -H "x-amz-security-token: ${session}" -H "X-Amz-Target: AmazonEC2ContainerRegistry_V20150921.GetAuthorizationToken" \
+    -H "Content-Type: application/x-amz-json-1.1" -d '{}' "${scheme}://api.ecr.${region}.amazonaws.com/" \
+    | jq -er '.authorizationData[0].authorizationToken'
+}
+
 # Logs in and reads a platform's index layers; on failure sets why and returns 1.
 use_index() {
-  local index="$1" platform="$2" repository="${1#*/}" challenge realm service bearer status digest started
+  local index="$1" platform="$2" repository="${1#*/}" challenge realm service bearer basic status digest started
   local name="${repository%:*}" tag="${repository##*:}"
   registry="${index%%/*}"
-  # INFRA_TOOLS_REGISTRY_SCHEME is for tests only (scripts/test/action.test.mjs serves a fake registry over http).
+  # INFRA_TOOLS_REGISTRY_SCHEME is for tests only (scripts/test/action.test.mjs serves a fake registry, and fake AWS APIs, over
+  # http).
   api="${INFRA_TOOLS_REGISTRY_SCHEME:-https}://${registry}/v2/${name}"
   auth=()
   echo "::group::infra-tools: index ${index}"
@@ -129,6 +149,11 @@ use_index() {
       http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token | jq -er .access_token)" \
       || { index_failed "no Workload Identity token for ${registry}"; return; }
     auth=(-H "Authorization: Bearer ${bearer}")
+  elif [[ "${registry}" =~ ^[0-9]+\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$ ]]; then
+    # ECR takes Basic auth on every request, with a token of the pod's IRSA role. Its blobs redirect to S3, where curl does not
+    # send the header.
+    basic="$(ecr_token "${BASH_REMATCH[1]}")" || { index_failed "no ECR token for ${registry}"; return; }
+    auth=(-H "Authorization: Basic ${basic}")
   else
     challenge="$(curl -sS --retry 3 --connect-timeout 10 -m 30 -o /dev/null -D - -H "Accept: ${media_index}" "${api}/manifests/${tag}" \
       | tr -d '\r' | sed -nE 's/^[Ww][Ww][Ww]-[Aa]uthenticate: *//p')" || { index_failed "cannot reach ${registry}"; return; }

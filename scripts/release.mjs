@@ -1,12 +1,13 @@
 // Usage: node release.mjs --image <registry>/<repository> --repository <owner>/<name> [--mirror <name>=<user>@<registry>/<repository>]...
 //        [--out <dir>]
 // The release (spec §5.5, ADR 0013, D64): publishes the draft release release-please created (lib/publish-release.mjs), its
-// index pushed to --image and copied to each --mirror, logged in as <user> with the token in MIRROR_TOKEN_<NAME> (MIRROR_TOKEN_GAR
-// for gar). Does nothing without a draft. Writes to --out (default build/out/release), for failure-issues.mjs, the failure
-// report of each step that failed in reports/ (one JSON file per step; a step that never finished, its timeout, leaves one
-// without its error) and the failure issue scopes the steps that passed resolve in resolve.txt, one per line; also writes
-// tools.json before its upload, and the outcome to the job summary ($GITHUB_STEP_SUMMARY). Exits 1 when a step failed. Uses gh
-// and its token (GH_TOKEN, else GITHUB_TOKEN) for GitHub, GITHUB_TOKEN for the registry.
+// index pushed to --image and copied to each --mirror, logged in as <user> with the token in MIRROR_TOKEN_<NAME>
+// (MIRROR_TOKEN_GAR for gar; a registry that asks for Basic auth, such as ECR, gets <user>:<token> on every request). Does
+// nothing without a draft. Writes to --out (default build/out/release), for failure-issues.mjs, the failure report of each step
+// that failed in reports/ (one JSON file per step; a step that never finished, its timeout, leaves one without its error) and
+// the failure issue scopes the steps that passed resolve in resolve.txt, one per line; also writes tools.json before its
+// upload, and the outcome to the job summary ($GITHUB_STEP_SUMMARY). Exits 1 when a step failed. Uses gh and its token
+// (GH_TOKEN, else GITHUB_TOKEN) for GitHub, GITHUB_TOKEN for the registry.
 import { appendFile, mkdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';

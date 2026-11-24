@@ -385,17 +385,41 @@ const MIRROR = 'europe-west1-docker.pkg.dev/ci-30-162810/infra-tools';
 const SOURCE_INDEX = `ghcr.io/${REPOSITORY}:test-tools`;
 const METADATA_TOKEN = 'workload-identity-token';
 
+// EKS runner set: the ECR fake also plays STS, the ECR API and S3, with the runner's IRSA role.
+const ECR_MIRROR = '463214588456.dkr.ecr.eu-central-1.amazonaws.com';
+const AWS = {
+  roleArn: 'arn:aws:iam::463214588456:role/camunda-ci-eks-irsa-test',
+  webIdentityToken: 'irsa-web-identity-token',
+  keyId: 'ASIATESTKEYID',
+  secret: 'sts-secret',
+  session: 'sts-session-token',
+  region: 'eu-central-1',
+  s3Host: 'prod-eu-central-1-starport-layer-bucket.s3.eu-central-1.amazonaws.com',
+};
+
 let mirror;
+let ecr;
 let proxy;
 let routes; // host → fake registry host the proxy sends it to
-// Called once the test index is filled: the mirror shares its content.
+// Called once the test index is filled: the mirrors share its content.
 async function startMirror() {
   mirror = new FakeRegistry({ name: `ci-30-162810/infra-tools/${REPOSITORY}`, metadataToken: METADATA_TOKEN });
-  await mirror.start();
+  ecr = new FakeRegistry({ ecrPassword: 'ecr-password', aws: AWS });
+  await Promise.all([mirror.start(), ecr.start()]);
   // Same content, same digests.
-  mirror.blobs = registry.blobs;
-  mirror.manifests = registry.manifests;
-  routes = { 'ghcr.io': registry.host, 'europe-west1-docker.pkg.dev': mirror.host, 'metadata.google.internal': mirror.host };
+  for (const fake of [mirror, ecr]) {
+    fake.blobs = registry.blobs;
+    fake.manifests = registry.manifests;
+  }
+  routes = {
+    'ghcr.io': registry.host,
+    'europe-west1-docker.pkg.dev': mirror.host,
+    'metadata.google.internal': mirror.host,
+    [ECR_MIRROR]: ecr.host,
+    'sts.eu-central-1.amazonaws.com': ecr.host,
+    'api.ecr.eu-central-1.amazonaws.com': ecr.host,
+    [AWS.s3Host]: ecr.host,
+  };
   proxy = createServer((req, res) => {
     const url = new URL(req.url);
     const [hostname, port] = (routes[url.host] ?? url.host).split(':');
@@ -410,13 +434,15 @@ async function startMirror() {
 }
 
 async function stopMirror() {
-  await mirror.stop();
+  await Promise.all([mirror.stop(), ecr.stop()]);
   await new Promise((resolve) => proxy.close(resolve));
 }
 
 beforeEach(() => {
   mirror.requests = [];
   mirror.failures = {};
+  ecr.requests = [];
+  ecr.s3Authorizations = [];
 });
 
 const onGke = (env = {}) => ({ INDEX: SOURCE_INDEX, INFRA_TOOLS_MIRROR: MIRROR, http_proxy: `http://127.0.0.1:${proxy.address().port}`, ...env });
@@ -481,6 +507,46 @@ test('an index on another registry than ghcr.io ignores the mirror', async () =>
   assert.equal(result.status, 0, result.log);
   assert.deepEqual(mirror.requests, []);
   assert.match(result.log, new RegExp(`^maven@3\\.9: 3\\.9\\.16 installed .* from ${registry.host} -> `, 'm'));
+});
+
+// The IRSA environment of an EKS runner pod: its role and the file of its web identity token.
+async function onEks(env = {}) {
+  const tokenFile = join(runner, 'irsa-token');
+  await writeFile(tokenFile, AWS.webIdentityToken);
+  return { ...onGke(), INFRA_TOOLS_MIRROR: ECR_MIRROR, AWS_ROLE_ARN: AWS.roleArn, AWS_WEB_IDENTITY_TOKEN_FILE: tokenFile, ...env };
+}
+
+test("with a mirror on ECR, tools come from the mirror with the IRSA role's ECR token, and S3 downloads get no Authorization", async () => {
+  const result = await action({ tools: 'maven@3.9', env: await onEks() });
+  assert.equal(result.status, 0, result.log);
+  assert.ok(existsSync(toolCache('maven/3.9.16/x64.complete')));
+  assert.match(result.log, /^maven@3\.9: 3\.9\.16 installed .* from 463214588456\.dkr\.ecr\.eu-central-1\.amazonaws\.com -> /m);
+  assert.ok(ecr.requests.includes(`GET /v2/${REPOSITORY}/manifests/test-tools`), ecr.requests.join('\n'));
+  assert.deepEqual(ecr.s3Authorizations, [''], 'one layer, downloaded from S3 without the ECR token');
+  assert.deepEqual(registry.requests, []);
+  assert.doesNotMatch(result.log, /::warning::/);
+});
+
+test('when the ECR login or the ECR mirror fails, the action falls back to ghcr.io with a warning and succeeds', async () => {
+  const noToken = `no ECR token for ${ECR_MIRROR}`;
+  for (const [what, env, down, why = noToken] of [
+    ['no IRSA role', { AWS_ROLE_ARN: '' }],
+    ['STS down', {}, 'sts.eu-central-1.amazonaws.com'],
+    ['ECR API down', {}, 'api.ecr.eu-central-1.amazonaws.com'],
+    ['ECR down', {}, ECR_MIRROR, `cannot read the index ${ECR_MIRROR}/${REPOSITORY}:test-tools`],
+  ]) {
+    const route = routes[down];
+    if (down) routes[down] = '127.0.0.1:1';
+    try {
+      await rm(toolCache(), { recursive: true, force: true });
+      const result = await action({ tools: 'maven@3.9', env: await onEks(env) });
+      assert.equal(result.status, 0, `${what}: ${result.log}`);
+      assert.ok(result.log.includes(`::warning::infra-tools: mirror ${ECR_MIRROR}/${REPOSITORY}:test-tools failed (${why}), using ${SOURCE_INDEX}`), `${what}: ${result.log}`);
+      assert.match(result.log, /^maven@3\.9: 3\.9\.16 installed .* from ghcr\.io -> /m, what);
+    } finally {
+      if (down) routes[down] = route;
+    }
+  }
 });
 
 test('summary: true adds a table of the selected tools to the job summary', async () => {

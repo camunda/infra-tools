@@ -103,3 +103,14 @@ test('a layer that does not match its digest is not copied', async () => {
   await assert.rejects(mirrorIndex(source.registry, mirror.registry, '1.0.0-tools'), new RegExp(`${first.digest} does not match its digest`));
   assert.ok(!mirror.fake.manifests.has('1.0.0-tools'));
 });
+
+test('a release index is copied to an ECR mirror, logged in with Basic auth as AWS and its ECR password', async () => {
+  const ecr = new FakeRegistry({ ecrPassword: 'ecr-password' });
+  fakes.push(ecr);
+  await ecr.start();
+  const registry = new Registry(ecr.repository, { token: 'ecr-password', user: 'AWS', scheme: 'http' });
+  addRelease(source.fake, '1.0.0-tools', ['3.9.16']);
+  assert.equal(await mirrorIndex(source.registry, registry, '1.0.0-tools'), true);
+  assert.equal(await registry.digest('1.0.0-tools'), await source.registry.digest('1.0.0-tools'));
+  assert.deepEqual(ecr.indexEntries('1.0.0-tools'), source.fake.indexEntries('1.0.0-tools'));
+});

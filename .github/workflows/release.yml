@@ -97,8 +97,9 @@ jobs:
       id: dependencies
       run: npm ci --prefix scripts
 
-    # One login step per mirror. infra-tools-mirror-sa can only write the GKE mirror (camunda/infra-core). A failed login fails
-    # only that mirror's step of the release, which tracks it in its failure issue.
+    # Login steps per mirror. infra-tools-mirror-sa and the infra-tools-mirror role can only write their mirror, the GKE and the
+    # EKS one, and only from main (camunda/infra-core). A failed login fails only that mirror's step of the release, which
+    # tracks it in its failure issue.
     - name: Authenticate to Google Cloud
       id: gar
       continue-on-error: true
@@ -109,6 +110,31 @@ jobs:
         token_format: access_token
         create_credentials_file: false # only the access token is used
 
+    - name: Authenticate to AWS
+      id: aws
+      continue-on-error: true
+      uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+      with:
+        role-to-assume: arn:aws:iam::463214588456:role/infra-tools-mirror
+        role-session-name: infra-tools-release
+        aws-region: eu-central-1
+        output-credentials: true # for the ECR login step only
+        output-env-credentials: false
+
+    # Not masked by the step that writes it, unlike the other tokens.
+    - name: Log in to ECR
+      id: ecr
+      if: steps.aws.outcome == 'success'
+      continue-on-error: true
+      env:
+        AWS_ACCESS_KEY_ID: ${{ steps.aws.outputs.aws-access-key-id }}
+        AWS_SECRET_ACCESS_KEY: ${{ steps.aws.outputs.aws-secret-access-key }}
+        AWS_SESSION_TOKEN: ${{ steps.aws.outputs.aws-session-token }}
+      run: |
+        password="$(aws ecr get-login-password --region eu-central-1)"
+        echo "::add-mask::${password}"
+        echo "password=${password}" >>"${GITHUB_OUTPUT}"
+
     # Does nothing without a draft. Writes the failure report of each failed step, and the failure issue scopes of those that
     # passed, for the failure issues step; a step cut by the timeout leaves its report.
     - name: Publish the release
@@ -117,11 +143,13 @@ jobs:
       env:
         GH_TOKEN: ${{ steps.app-token.outputs.token }} # gh, for the releases
         GITHUB_TOKEN: ${{ github.token }} # ghcr.io
+        MIRROR_TOKEN_ECR: ${{ steps.ecr.outputs.password }}
         MIRROR_TOKEN_GAR: ${{ steps.gar.outputs.access_token }}
         REPOSITORY: ${{ github.repository }}
       run: |
         node scripts/release.mjs --image "${IMAGE}" --repository "${REPOSITORY}" --out "${OUT}" \
-          --mirror gar=oauth2accesstoken@europe-west1-docker.pkg.dev/ci-30-162810/infra-tools/camunda/infra-tools
+          --mirror gar=oauth2accesstoken@europe-west1-docker.pkg.dev/ci-30-162810/infra-tools/camunda/infra-tools \
+          --mirror ecr=AWS@463214588456.dkr.ecr.eu-central-1.amazonaws.com/camunda/infra-tools
 
     # Only once every step passed: no draft is left, so the changelog starts at the latest release's tag.
     - name: Open or update the release PR
