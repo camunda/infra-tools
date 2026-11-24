@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.4.0](https://github.com/camunda/infra-tools/compare/1.3.0...1.4.0) (2026-11-24)
+
+
+### Features
+
+* **gcloud:** publish 594.0.0 ([a259c97](https://github.com/camunda/infra-tools/commit/a259c9748af059f1ea8111528c0b0dcf2312a23d))
+* **gcloud:** publish 594.0.1 ([a259c97](https://github.com/camunda/infra-tools/commit/a259c9748af059f1ea8111528c0b0dcf2312a23d))
+
 ## [1.3.0](https://github.com/camunda/infra-tools/compare/1.2.0...1.3.0) (2026-11-24)
 
 
