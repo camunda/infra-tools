@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/camunda/infra-tools/compare/1.2.0...1.3.0) (2026-11-24)
+
+
+### Features
+
+* install from the ECR mirror on EKS runners, filled by the release ([bae1f66](https://github.com/camunda/infra-tools/commit/bae1f665f6c39b40c227525ea2ab7677195d740b)), closes [#16](https://github.com/camunda/infra-tools/issues/16)
+
 ## [1.2.0](https://github.com/camunda/infra-tools/compare/1.1.0...1.2.0) (2026-11-23)
 
 
