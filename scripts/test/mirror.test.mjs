@@ -1,6 +1,7 @@
 // Copying a release index to a mirror (release.mjs, mirror step), against two fake registries.
 import assert from 'node:assert/strict';
 import { after, beforeEach, test } from 'node:test';
+import { duration, size } from '../lib/log.mjs';
 import { mirrorIndex } from '../lib/mirror.mjs';
 import { sha256 } from '../lib/oci.mjs';
 import { Registry } from '../lib/registry.mjs';
@@ -36,6 +37,13 @@ function addRelease(fake, tag, versions) {
   fake.addIndex(tag, entries);
 }
 
+// The lines mirrorIndex logs, timings masked.
+function logged() {
+  const lines = [];
+  const log = (line) => lines.push(line.replace(/in \d+\.\d s \(\d+\.\d MB\/s\)/, 'in … (… MB/s)'));
+  return { lines, log };
+}
+
 let source;
 let mirror;
 let fakes = [];
@@ -53,26 +61,39 @@ after(() => Promise.all(fakes.map((f) => f.stop())));
 
 test('a release index missing from the mirror is copied with its manifests and layers, with the same digests', async () => {
   addRelease(source.fake, '1.0.0-tools', ['3.9.16']);
-  assert.equal(await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools'), true);
+  const { lines, log } = logged();
+  assert.equal(await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools', { log }), true);
   assert.equal(await mirror.registry.digest('1.0.0-tools'), await source.registry.digest('1.0.0-tools'));
   assert.deepEqual(mirror.fake.indexEntries('1.0.0-tools'), source.fake.indexEntries('1.0.0-tools'));
   for (const { digest } of source.fake.indexEntries('1.0.0-tools')) assert.ok(mirror.fake.blobs.has(digest), digest);
+  assert.deepEqual(lines, [
+    'layer sha256:aca6633e… 0.0 MB copied in … (… MB/s)',
+    'layer sha256:e609769d… 0.0 MB copied in … (… MB/s)',
+    '2 copied (0.0 MB), 0 present, index tagged 1.0.0-tools',
+  ]);
 });
 
 test('a release index the mirror holds with the same digest is left alone', async () => {
   addRelease(source.fake, '1.0.0-tools', ['3.9.16']);
   await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools');
   mirror.fake.requests = [];
-  assert.equal(await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools'), false);
+  const { lines, log } = logged();
+  assert.equal(await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools', { log }), false);
   assert.deepEqual(mirror.fake.requests.filter((r) => !r.startsWith('GET') && !r.startsWith('HEAD')), []);
+  const digest = await source.registry.digest('1.0.0-tools');
+  assert.deepEqual(lines, [`${mirror.registry.repository}:1.0.0-tools already holds ${digest}, nothing to copy`]);
 });
 
 test("a mirror tag pointing to other content, such as a retargeted draft's earlier index, is replaced by the source's", async () => {
   addRelease(mirror.fake, '1.0.0-tools', ['3.9.15']);
   addRelease(source.fake, '1.0.0-tools', ['3.9.16']);
-  assert.equal(await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools'), true);
-  assert.equal(await mirror.registry.digest('1.0.0-tools'), await source.registry.digest('1.0.0-tools'));
+  const earlier = await mirror.registry.digest('1.0.0-tools');
+  const { lines, log } = logged();
+  assert.equal(await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools', { log }), true);
+  const digest = await source.registry.digest('1.0.0-tools');
+  assert.equal(await mirror.registry.digest('1.0.0-tools'), digest);
   assert.deepEqual(mirror.fake.indexEntries('1.0.0-tools'), source.fake.indexEntries('1.0.0-tools'));
+  assert.equal(lines.at(-1), `replaced ${mirror.registry.repository}:1.0.0-tools (${earlier} → ${digest})`);
 });
 
 test('layers the mirror holds are not uploaded again', async () => {
@@ -80,9 +101,22 @@ test('layers the mirror holds are not uploaded again', async () => {
   await mirrorIndex(source.registry, mirror.registry, '1.0.0-tools');
   addRelease(source.fake, '1.1.0-tools', ['3.9.16', '3.10.1']);
   mirror.fake.requests = [];
-  await mirrorIndex(source.registry, mirror.registry, '1.1.0-tools');
+  const { lines, log } = logged();
+  await mirrorIndex(source.registry, mirror.registry, '1.1.0-tools', { log });
   const uploads = mirror.fake.requests.filter((r) => r.startsWith('PUT') && r.includes('/blobs/uploads/'));
   assert.equal(uploads.length, 2, 'only the layers of 3.10.1');
+  assert.deepEqual(lines, [
+    'layer sha256:aca6633e… present, skipped',
+    'layer sha256:e3c02713… 0.0 MB copied in … (… MB/s)',
+    'layer sha256:e609769d… present, skipped',
+    'layer sha256:e700b6e6… 0.0 MB copied in … (… MB/s)',
+    '2 copied (0.0 MB), 2 present, index tagged 1.1.0-tools',
+  ]);
+});
+
+test('sizes and durations are logged as the action logs them, minutes past one minute', () => {
+  assert.deepEqual([size(0), size(209_000_000), size(1_181_116_006)], ['0.0 MB', '199.3 MB', '1.1 GB']);
+  assert.deepEqual([duration(0), duration(3_240), duration(59_900), duration(141_000)], ['0.0 s', '3.2 s', '59.9 s', '2m 21s']);
 });
 
 test('an interrupted copy leaves no tag on the mirror, and the next run completes it', async () => {

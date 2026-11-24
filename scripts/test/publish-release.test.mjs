@@ -183,6 +183,54 @@ test('each step is announced before it starts, with the failures so far, so one 
   assert.deepEqual(started, ['drafts undefined []', 'index 0.1.0 []', 'mirror.ecr 0.1.0 []', 'mirror.gar 0.1.0 [mirror.ecr]']);
 });
 
+// The lines publishRelease logs outside the mirror copies, durations masked.
+function stepLines() {
+  const lines = [];
+  const log = (line) => {
+    if (/^(::|[\w.]+: )/.test(line)) lines.push(line.replace(/ in (\d+\.\d s|\d+m \d+s)$/, ' in …'));
+  };
+  return { lines, log };
+}
+
+test('each step is logged in its own group, then its outcome and duration; a rerun has nothing to do', async () => {
+  const github = fakeGitHub([draft], { fail: 'notes' });
+  const first = stepLines();
+  await publishRelease({ registry, mirrors, repository: REPOSITORY, github, log: first.log });
+  assert.deepEqual(first.lines, [
+    '::group::drafts',
+    '::endgroup::',
+    'drafts: done in …',
+    '::group::index',
+    '::endgroup::',
+    'index: 0.1.0-tools pushed in …',
+    '::group::mirror.gar',
+    '::endgroup::',
+    'mirror.gar: 0.1.0-tools copied in …',
+    '::group::notes',
+    '::endgroup::',
+    'notes: failed in …',
+  ]);
+  github.fail = undefined;
+  const rerun = stepLines();
+  await publishRelease({ registry, mirrors, repository: REPOSITORY, github, log: rerun.log });
+  assert.deepEqual(rerun.lines.filter((line) => !line.startsWith('::')), [
+    'drafts: done in …',
+    'index: nothing to do in …',
+    'mirror.gar: nothing to do in …',
+    'notes: done in …',
+    'undraft: done in …',
+  ]);
+});
+
+test('the layers of a mirror copy are logged in the group of its step', async () => {
+  const github = fakeGitHub([draft]);
+  const lines = [];
+  await publishRelease({ registry, mirrors, repository: REPOSITORY, github, log: (line) => lines.push(line) });
+  const group = lines.slice(lines.indexOf('::group::mirror.gar') + 1);
+  assert.deepEqual(group.slice(2, 4), ['2 copied (0.0 MB), 0 present, index tagged 0.1.0-tools', '::endgroup::']);
+  assert.match(group[0], /^layer sha256:[0-9a-f]{8}… 0\.0 MB copied in /);
+});
+
 test('a release listing that keeps failing is a failure of the drafts step', async () => {
   const github = fakeGitHub([draft], { fail: 'list' });
   const outcome = await run(github);

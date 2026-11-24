@@ -1,5 +1,6 @@
 // Minimal OCI distribution client: token exchange as on ghcr.io (any user name) or Artifact Registry (oauth2accesstoken), or Basic
 // auth on every request as on ECR (AWS, with the password of GetAuthorizationToken).
+import { duration } from './log.mjs';
 import { manifestBytes, MEDIA_TYPES, sha256 } from './oci.mjs';
 
 const ACCEPT = [
@@ -16,17 +17,22 @@ const RETRY_DELAYS = [2000, 4000, 8000];
 // Statuses of a transient error: a rate limit, a server or gateway error.
 const transient = (status) => status === 429 || status >= 500;
 
-// fetch, retrying network errors and transient statuses after each of delays; the last response or error stands.
-async function fetchRetrying(url, options, delays) {
+// fetch, retrying network errors and transient statuses after each of delays; the last response or error stands. Logs each
+// retry with the URL's origin and path only, never a header: a query, such as a pre-signed URL's, can hold a credential.
+async function fetchRetrying(url, options, delays, log) {
+  const { origin, pathname } = new URL(url);
   for (let retry = 0; ; retry++) {
     let res;
+    let error;
     try {
       res = await fetch(url, options);
     } catch (err) {
       if (retry >= delays.length) throw err;
+      error = err.cause?.message ?? err.message;
     }
     if (res && (!transient(res.status) || retry >= delays.length)) return res;
     await res?.body?.cancel();
+    log(`retry ${retry + 1}/${delays.length} in ${duration(delays[retry])}: ${options.method ?? 'GET'} ${origin}${pathname}: ${error ?? `HTTP ${res.status}`}`);
     await sleep(delays[retry]);
   }
 }
@@ -37,7 +43,8 @@ export const tagExists = (registry) => (tag) => registry.exists(tag);
 export class Registry {
   // repository: <registry>/<name>, e.g. ghcr.io/camunda/infra-tools.
   // user: token exchange user name. scheme: http for tests only. retryDelays: the waits before each retry of a transient error.
-  constructor(repository, { token = process.env.GITHUB_TOKEN, user = 'token', scheme = 'https', retryDelays = RETRY_DELAYS } = {}) {
+  // log: called with a line per retry, on stderr by default.
+  constructor(repository, { token = process.env.GITHUB_TOKEN, user = 'token', scheme = 'https', retryDelays = RETRY_DELAYS, log = (line) => console.error(line) } = {}) {
     const slash = repository.indexOf('/');
     this.repository = repository;
     this.host = repository.slice(0, slash);
@@ -48,6 +55,7 @@ export class Registry {
     this.bearer = {};
     this.basic = null; // Authorization header of a registry that asked for Basic auth
     this.retryDelays = retryDelays;
+    this.log = log;
   }
 
   // Retries network errors, rate limits and server errors with backoff; any status outside `ok` throws, so an outage never
@@ -57,7 +65,7 @@ export class Registry {
     const url = /^https?:\/\//.test(path) ? path : `${this.base}${path}`;
     for (;;) {
       const authorization = this.authorization(scope);
-      const res = await fetchRetrying(url, { method, headers: { ...headers, ...(authorization && { Authorization: authorization }) }, body }, this.retryDelays);
+      const res = await fetchRetrying(url, { method, headers: { ...headers, ...(authorization && { Authorization: authorization }) }, body }, this.retryDelays, this.log);
       if (res.status === 401 && !authorization) {
         await this.login(res.headers.get('www-authenticate'), scope);
         continue;
@@ -84,7 +92,7 @@ export class Registry {
     if (params.service) url.searchParams.set('service', params.service);
     url.searchParams.set('scope', `repository:${this.name}:${scope}`);
     const headers = this.token ? { Authorization: `Basic ${Buffer.from(`${this.user}:${this.token}`).toString('base64')}` } : {};
-    const res = await fetchRetrying(url, { headers }, this.retryDelays);
+    const res = await fetchRetrying(url, { headers }, this.retryDelays, this.log);
     if (!res.ok) throw new Error(`${this.host}: token request failed: HTTP ${res.status}`);
     const json = await res.json();
     this.bearer[scope] = json.token ?? json.access_token;
