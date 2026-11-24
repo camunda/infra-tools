@@ -80,6 +80,8 @@ const { release, failures, resolve } = await publishRelease({
   github,
   // The failures so far and the step in progress: one cut by the step's timeout is reported too.
   onStep: (step, version, failed) => writeReports([...failed, releaseFailureReport({ step, release: version })]),
+  // Each step in a collapsed group, with its outcome and duration; a registry's retries go to stderr.
+  log: (line) => console.log(line),
 });
 await writeReports(failures);
 await writeFile(join(values.out, 'resolve.txt'), resolve.map((scope) => `${scope}\n`).join(''));
