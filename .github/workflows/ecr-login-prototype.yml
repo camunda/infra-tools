@@ -61,9 +61,10 @@ jobs:
         echo "::add-mask::${authorization}"
         echo "GetAuthorizationToken: ok"
 
-        # The mirror is empty until a release fills it: a 200 on the tag list proves the login and the read policy.
+        # The mirror is empty until a release fills it, and the read policy has no ecr:ListImages (tags/list): a missing
+        # manifest answers 404 where the policy lets the runner read (BatchGetImage), 403 elsewhere.
         for repository in camunda/infra-tools dockerhub/library/docker; do
-          status="$(curl -sS -o /dev/null -w '%{http_code}' -m 30 -H "Authorization: Basic ${authorization}" \
-            "https://${REGISTRY}/v2/${repository}/tags/list")"
-          echo "tags/list ${repository}: HTTP ${status}"
+          status="$(curl -sS -o /dev/null -w '%{http_code}' -m 30 -I -H "Authorization: Basic ${authorization}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json" "https://${REGISTRY}/v2/${repository}/manifests/0.0.0-tools")"
+          echo "manifest ${repository}:0.0.0-tools: HTTP ${status}"
         done
