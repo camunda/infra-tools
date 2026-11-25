@@ -1,0 +1,16 @@
+[
+  {
+    "version": "1.8.2",
+    "line": "1",
+    "folderVersion": "1.8.2",
+    "revision": 1,
+    "tag": "jq-1.8.2-r1",
+    "cacheFolder": "jq",
+    "archFolders": {
+      "amd64": "x64",
+      "arm64": "arm64"
+    },
+    "addToPath": "bin",
+    "publishedAt": "2026-11-25T08:36:08.982Z"
+  }
+]
