@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/camunda/infra-tools/compare/1.4.0...1.5.0) (2026-11-25)
+
+
+### Features
+
+* **jq:** publish 1.8.2 ([a54cd14](https://github.com/camunda/infra-tools/commit/a54cd144e0e2cd2fb3ab6a1bc4b33630de514bec))
+
 ## [1.4.0](https://github.com/camunda/infra-tools/compare/1.3.0...1.4.0) (2026-11-24)
 
 
