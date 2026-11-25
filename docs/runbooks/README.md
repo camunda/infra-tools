@@ -1,6 +1,6 @@
 # Runbooks
 
-The procedures of the failure issues (ADR 0012, D63): `scripts/failure-issues.mjs` copies the runbook of a failure into its failure issue, below the failure's context, observed state and error, so a person or an agent can fix it from the issue alone.
+The procedures of the failure issues (ADR 0012, D63): `scripts/failure-issues.mjs` copies the runbook of a failure into its failure issue, below the failure's context, observed state and error, so a person or an agent can fix it from the issue alone. A reconciler run failure issue alerts `#infra-alerts` only once its step has kept failing for a day (D67): an issue without an alert yet may be an outage that ends on its own.
 
 | Failure | Runbook |
 | --- | --- |

@@ -66,6 +66,10 @@ _Avoid_: pipeline failure, job failure
 The GitHub issue tracking one failure, with what happened and how to fix it; it follows the failure's state, closing once the failure is gone and reopening while it lasts.
 _Avoid_: fix PR, alert, incident
 
+**Failure alert**:
+The Slack line in `#infra-alerts` that calls a person to a failure issue: as soon as the issue opens or reopens, except for a reconciler run failure, only once its step has kept failing for a day.
+_Avoid_: notification, page, ping
+
 **Catalog**:
 The in-repository record of every published tool version, written by the reconciler.
 _Avoid_: published list, inventory

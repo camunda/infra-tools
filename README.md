@@ -10,7 +10,7 @@ Work in progress: phase 1 is tracked in [#7](https://github.com/camunda/infra-to
 
 ## Publication
 
-The [Reconcile](.github/workflows/reconcile.yml) workflow publishes every upstream version within the version lines of `tools/*/tool.json`, every 6 hours, on push to `main` and on demand: it builds, tests and pushes each missing tool image to `ghcr.io/camunda/infra-tools`, creates its tool release, and records it in `published/<tool>.json` with one commit per run, pushed to `main` by the Infra - Misc App. Run it now:
+The [Reconcile](.github/workflows/reconcile.yml) workflow publishes every upstream version within the version lines of `tools/*/tool.json`, every 2 hours, on push to `main` and on demand: it builds, tests and pushes each missing tool image to `ghcr.io/camunda/infra-tools`, creates its tool release, and records it in `published/<tool>.json` with one commit per run, pushed to `main` by the Infra - Misc App. Run it now:
 
 ```sh
 gh workflow run reconcile.yml
@@ -24,7 +24,7 @@ GITHUB_TOKEN="$(gh auth token)" node scripts/plan.mjs --image ghcr.io/camunda/in
 
 ### Fix a tool version that fails to build
 
-A version that fails to build or test is a tool failure: it is listed, with its error, in the failure issue of its tool and major (label `tool-failure`, [ADR 0012](docs/adr/0012-failure-issues-instead-of-fix-prs.md)), and the run stays green. Reproduce it with `node scripts/build.mjs <tool> <version>`, then fix it in a pull request that refers to the issue, usually an `if version ≥ X` in `install.sh` or `test.sh`, or ignore the version: add it to its line's `ignoredVersions` in `tool.json`, with the line's `reason`. Every run builds the version again until then, and closes the issue once it is published or ignored; closing it by hand changes nothing, a run reopens it while the version fails. Any other reconciler failure (plan, push, record, a version in range neither published nor failed) is a run failure: it fails the run and opens the failure issue of its step (label `run-failure`). Each issue carries its procedure from [`docs/runbooks/`](docs/runbooks/), and opening or reopening one alerts `#infra-alerts`.
+A version that fails to build or test is a tool failure: it is listed, with its error, in the failure issue of its tool and major (label `tool-failure`, [ADR 0012](docs/adr/0012-failure-issues-instead-of-fix-prs.md)), and the run stays green. Reproduce it with `node scripts/build.mjs <tool> <version>`, then fix it in a pull request that refers to the issue, usually an `if version ≥ X` in `install.sh` or `test.sh`, or ignore the version: add it to its line's `ignoredVersions` in `tool.json`, with the line's `reason`. Every run builds the version again until then, and closes the issue once it is published or ignored; closing it by hand changes nothing, a run reopens it while the version fails. Any other reconciler failure (plan, push, record, a version in range neither published nor failed) is a run failure: it fails the run and opens the failure issue of its step (label `run-failure`). Each issue carries its procedure from [`docs/runbooks/`](docs/runbooks/). Opening or reopening a tool failure issue alerts `#infra-alerts`; a run failure issue alerts it only once its step has kept failing for a day, so an outage that ends on its own calls no one.
 
 ## Releases
 

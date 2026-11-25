@@ -142,7 +142,69 @@ test('reports of one key, such as the push failures of several build jobs, open 
   assert.equal(issue.body.match(/The reconciler could not push node 26\.1\.0\./g).length, 1);
   assert.match(issue.body, /^### node-26\.1\.0-r1$/m);
   assert.match(issue.body, /^### java-21\.0\.13-5-r1$/m);
-  assert.equal(alerts.length, 1);
+  assert.deepEqual(alerts, []);
+});
+
+// A time n hours after the first failure of the reconciler run failure tests, in milliseconds.
+const atHour = (n) => Date.parse('2026-11-25T00:00:00Z') + n * 60 * 60 * 1000;
+
+test('a reconciler run failure opens its issue without an alert, and alerts once, by the first run that finds it failing for 24 h', async () => {
+  const github = fakeGithub();
+  const run = async (id, now) => {
+    const alerts = [];
+    const { pendingAlerts } = await syncFailureIssues({ github, alert: async (text) => alerts.push(text), readRunbook, failures: [pushFailure], runUrl: runUrl(id), now });
+    return { alerts, pendingAlerts };
+  };
+  const pending = [{ title: 'Run failure: reconcile push', url: 'https://github.com/camunda/infra-tools/issues/1', alertAt: '2026-11-26T00:00:00.000Z' }];
+  assert.deepEqual(await run(1, atHour(0)), { alerts: [], pendingAlerts: pending });
+  assert.equal(github.issues[0].state, 'open');
+  assert.deepEqual(await run(2, atHour(22)), { alerts: [], pendingAlerts: pending });
+  assert.deepEqual(await run(3, atHour(24.5)), { alerts: [':rotating_light: Failure issue failing for 24 h: <https://github.com/camunda/infra-tools/issues/1|Run failure: reconcile push>'], pendingAlerts: [] });
+  assert.deepEqual(await run(4, atHour(26)), { alerts: [], pendingAlerts: [] });
+  assert.equal(github.issues.length, 1);
+});
+
+test('a reconciler run failure found again after its issue closed starts over, without an alert, even when reopened by hand', async () => {
+  const github = fakeGithub();
+  await sync(github, { failures: [pushFailure], runUrl: runUrl(1), now: atHour(0) });
+  await sync(github, { failures: [pushFailure], runUrl: runUrl(2), now: atHour(24) });
+  await sync(github, { failures: [], resolve: ['reconcile/push'], runUrl: runUrl(3), now: atHour(26) });
+  const [issue] = github.issues;
+  assert.equal(issue.state, 'closed');
+
+  // Reopened by a run.
+  assert.deepEqual(await sync(github, { failures: [pushFailure], runUrl: runUrl(4), now: atHour(30) }), []);
+  assert.equal(issue.state, 'open');
+  assert.deepEqual(await sync(github, { failures: [pushFailure], runUrl: runUrl(5), now: atHour(52) }), []);
+  assert.equal((await sync(github, { failures: [pushFailure], runUrl: runUrl(6), now: atHour(54) })).length, 1);
+
+  // Closed by a run, then reopened by hand: the failure that comes back waits a day again.
+  await sync(github, { failures: [], resolve: ['reconcile/push'], runUrl: runUrl(7), now: atHour(56) });
+  await github.updateIssue(issue.number, { state: 'open' });
+  assert.deepEqual(await sync(github, { failures: [pushFailure], runUrl: runUrl(8), now: atHour(58) }), []);
+  assert.equal((await sync(github, { failures: [pushFailure], runUrl: runUrl(9), now: atHour(82) })).length, 1);
+});
+
+test('closing or reopening a reconciler run failure issue by hand keeps its streak: the failure never stopped', async () => {
+  const github = fakeGithub();
+  await sync(github, { failures: [pushFailure], runUrl: runUrl(1), now: atHour(0) });
+  const [issue] = github.issues;
+
+  // Closed and reopened by hand between two runs.
+  await github.updateIssue(issue.number, { state: 'closed' });
+  await github.updateIssue(issue.number, { state: 'open' });
+  assert.deepEqual(await sync(github, { failures: [pushFailure], runUrl: runUrl(2), now: atHour(12) }), []);
+
+  // Closed by hand: the run that finds it failing reopens it without an alert, which still comes 24 h after the failure started.
+  await github.updateIssue(issue.number, { state: 'closed' });
+  assert.deepEqual(await sync(github, { failures: [pushFailure], runUrl: runUrl(3), now: atHour(20) }), []);
+  assert.equal(issue.state, 'open');
+  assert.equal((await sync(github, { failures: [pushFailure], runUrl: runUrl(4), now: atHour(24) })).length, 1);
+
+  // Alerted, then closed by hand: reopened without a second alert.
+  await github.updateIssue(issue.number, { state: 'closed' });
+  assert.deepEqual(await sync(github, { failures: [pushFailure], runUrl: runUrl(5), now: atHour(26) }), []);
+  assert.equal(issue.state, 'open');
 });
 
 test('a run that finds a failure of its scope gone closes its issue with a comment; failures out of its scope stay open', async () => {

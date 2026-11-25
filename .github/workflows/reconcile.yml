@@ -4,13 +4,14 @@ name: Reconcile
 # Reconciler (spec §5.3, ADR 0005): publishes every upstream version within the version lines of the tool definitions. Builds,
 # tests and pushes the missing tool images with the job token, creates their tool releases, and records them in one commit per
 # run, pushed to main by the Infra - Misc App, bypass actor of the main ruleset (D49). Failures are tracked in failure issues
-# (ADR 0012, D63), which alert #infra-alerts when they open or reopen: a version that fails to build or test is a tool failure,
-# in the issue of its tool and major, and leaves the run green; any other failed step (plan, push, record, the completeness
-# check R17) is a run failure, in the issue of its step, and fails the run, with guidance in its job summaries. Transient
-# registry and GitHub API errors are retried inside the scripts, call by call: a step fails only when its error persists.
+# (ADR 0012, D63): a version that fails to build or test is a tool failure, in the issue of its tool and major, which alerts
+# #infra-alerts when it opens or reopens, and leaves the run green; any other failed step (plan, push, record, the completeness
+# check R17) is a run failure, in the issue of its step, which alerts #infra-alerts once the step has kept failing for a day
+# (D67), and fails the run, with guidance in its job summaries. Transient registry and GitHub API errors are retried inside the
+# scripts, call by call: a step fails only when its error persists.
 on:
   schedule:
-  - cron: '0 */6 * * *' # every 6 hours
+  - cron: '0 */2 * * *' # every 2 hours
   push:
     branches:
     - main

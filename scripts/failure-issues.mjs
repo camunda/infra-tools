@@ -4,8 +4,10 @@
 // them; the folder is missing when nothing failed) opens, updates or reopens its failure issue, with its runbook from
 // docs/runbooks/; the open failure issue of a key within a --resolve scope (tool, reconcile/push, release/index/1.2.0, ...)
 // that no report has is closed. An issue opened or reopened posts one line to #infra-alerts through the Slack webhook in
-// SLACK_WEBHOOK_INFRA_ALERTS. Uses gh and its token (GH_TOKEN or GITHUB_TOKEN): the job's GITHUB_TOKEN, with issues: write.
-import { readFile } from 'node:fs/promises';
+// SLACK_WEBHOOK_INFRA_ALERTS, its failure alert; a reconciler run failure posts it only once its step has kept failing for a
+// day (D67), and until then the job summary ($GITHUB_STEP_SUMMARY) says when it will. Uses gh and its token (GH_TOKEN or
+// GITHUB_TOKEN): the job's GITHUB_TOKEN, with issues: write.
+import { appendFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
 import { syncFailureIssues } from './lib/failure-issues.mjs';
@@ -74,7 +76,7 @@ async function postAlert(text) {
 // Alerts are sent once every issue is written: a Slack error then fails the run without leaving a failure untracked; the alert
 // itself is lost, as the next run only updates the issue.
 const alerts = [];
-await syncFailureIssues({
+const { pendingAlerts } = await syncFailureIssues({
   github,
   alert: async (text) => alerts.push(text),
   readRunbook: (path) => readFile(join(ROOT, 'docs', 'runbooks', path), 'utf8'),
@@ -82,4 +84,7 @@ await syncFailureIssues({
   resolve: values.resolve,
   runUrl: values['run-url'],
 });
+const lines = pendingAlerts.map(({ title, url, alertAt }) => `- [${title}](${url}): alerts \`#infra-alerts\` at ${alertAt} if still failing.`);
+lines.forEach((line) => console.log(line));
+if (lines.length && process.env.GITHUB_STEP_SUMMARY) await appendFile(process.env.GITHUB_STEP_SUMMARY, `## Failure alerts to come\n\n${lines.join('\n')}\n`);
 for (const text of alerts) await postAlert(text);
