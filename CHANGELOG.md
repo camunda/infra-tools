@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.0](https://github.com/camunda/infra-tools/compare/1.5.0...1.6.0) (2026-11-25)
+
+
+### Features
+
+* alert reconciler run failures once they last a day ([b8845a1](https://github.com/camunda/infra-tools/commit/b8845a180cdf4b5295bebb025ca6eeef9e9e28b7))
+
 ## [1.5.0](https://github.com/camunda/infra-tools/compare/1.4.0...1.5.0) (2026-11-25)
 
 
