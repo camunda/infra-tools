@@ -116,7 +116,7 @@ jobs:
       retried-errors: ${{ env.RETRIED_ERRORS }}
     steps:
     - name: Retrigger failed jobs
-      uses: camunda/infra-global-github-actions/rerun-failed-run@main
+      uses: camunda/infra-global-github-actions/rerun-failed-run@405ecc95af077cd030bfe3249511e802fd9e4585 # rerun-failed-run-1.2.2
       with:
         error-messages: ${{ env.RETRIED_ERRORS }}
         run-id: ${{ github.run_id }}

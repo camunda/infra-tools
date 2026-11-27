@@ -255,7 +255,7 @@ Workflows follow the infra team's reference repository, [`camunda/infra-services
 
 - Permissions: root `permissions: {}`, minimal grants per job, each non-obvious scope with a reason comment (e.g. `id-token: write # Vault OIDC/JWT auth`).
 - Every job sets `timeout-minutes`; every job and step has a `name:`; workflow files are kebab-case.
-- Pinning: third-party and `actions/*` by SHA with a version comment; `camunda/*` actions by ref. zizmor runs with all audits enabled and this pinning policy.
+- Pinning: third-party and `actions/*` by SHA with a version comment; `camunda/*` actions by ref, `camunda/infra-global-github-actions` by release SHA with a `# <family>-X.Y.Z` comment. zizmor runs with all audits enabled and this pinning policy.
 - Steps pass values through `env:` rather than inline `${{ }}`; longer logic lives in scripts, tested like the rest of the code.
 - Checkouts that don't push use `persist-credentials: false`. No harden-runner.
 - Secrets come from Vault with JWT (`hashicorp/vault-action`); GitHub App tokens are minted from Vault-stored credentials.
