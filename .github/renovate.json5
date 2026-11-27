@@ -9,6 +9,8 @@
     // Only rebase PRs on real conflicts, not on every base-branch push.
     // Opt back in per-PR via the `keep-updated` (continuous) or `rebase` (one-off) label.
     "github>camunda/infra-renovate-config:rebase.json5",
+    // Version-tracks camunda/infra-global-github-actions sub-action pins (# <family>-X.Y.Z).
+    "github>camunda/infra-global-github-actions:renovate-action-versions.json5",
   ],
   semanticCommitScope: null,
   schedule: ["at any time"],

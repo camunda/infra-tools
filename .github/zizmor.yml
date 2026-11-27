@@ -6,7 +6,9 @@ rules:
   unpinned-uses:
     config:
       policies:
-        # Camunda-owned actions and reusable workflows, consumed by ref (e.g. infra-global-github-actions at @main).
+        # infra-global-github-actions by release SHA (# <family>-X.Y.Z); more specific than camunda/*, so it wins.
+        camunda/infra-global-github-actions/*: hash-pin
+        # Other Camunda-owned actions and reusable workflows.
         camunda/*: ref-pin
         # Everything else, actions/* included, by commit SHA: a tag can be force-pushed by a compromised upstream.
         "*": hash-pin
